@@ -1,6 +1,9 @@
 package payment
 
 import (
+	"fmt"
+	"time"
+
 	"github.com/go-kit/kit/endpoint"
 	"github.com/go-kit/kit/tracing/opentracing"
 	stdopentracing "github.com/opentracing/opentracing-go"
@@ -30,7 +33,22 @@ func MakeAuthoriseEndpoint(s Service) endpoint.Endpoint {
 		span.SetTag("service", "payment")
 		defer span.Finish()
 		req := request.(AuthoriseRequest)
+
+		// Emit PoE for request (pre-decision)
+		reqID := fmt.Sprintf("auth:%d", time.Now().UnixNano())
+		emitPoE(reqID, map[string]interface{}{
+			"op":     "authorize",
+			"amount": req.Amount,
+		}, map[string]string{"stage": "request"})
+
 		authorisation, err := s.Authorise(req.Amount)
+
+		// Emit PoE for response (post-decision)
+		emitPoE(reqID, map[string]string{"stage": "decision"}, map[string]interface{}{
+			"authorised": authorisation.Authorised,
+			"message":    authorisation.Message,
+			"err":        errString(err),
+		})
 		return AuthoriseResponse{Authorisation: authorisation, Err: err}, nil
 	}
 }
@@ -65,4 +83,12 @@ type healthRequest struct {
 
 type healthResponse struct {
 	Health []Health `json:"health"`
+}
+
+func errString(err error) *string {
+	if err == nil {
+		return nil
+	}
+	s := err.Error()
+	return &s
 }
