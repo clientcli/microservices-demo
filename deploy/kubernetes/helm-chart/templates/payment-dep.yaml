@@ -25,15 +25,32 @@ spec:
         command:
         - /app
         - -decline={{ .Values.payment.declinePaymentsOverAmount }}
+        env:
+        - name: SERVICE_NAME
+          value: payment
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: SIDECAR_INGEST_URL
+          value: http://127.0.0.1:{{ .Values.poeSidecar.containerPort }}/prove
+        {{- if .Values.zipkin.enabled }}
+        - name: ZIPKIN
+          value: http://{{ .Values.zipkin.url }}:9411/api/v1/spans
+        {{- end }}
         resources:
 {{ toYaml .Values.payment.resources | indent 10 }}
         ports:
         - containerPort: {{ .Values.payment.containerPort }}
-        {{- if .Values.zipkin.enabled }}
-        env:
-        - name: ZIPKIN
-          value: http://{{ .Values.zipkin.url }}:9411/api/v1/spans
-        {{- end }}
+        
         securityContext:
           runAsNonRoot: true
           runAsUser: 10001
@@ -57,3 +74,40 @@ spec:
             port: {{ .Values.payment.containerPort }}
           initialDelaySeconds: 180
           periodSeconds: 3
+      {{- if .Values.poeSidecar.enabled }}
+      - name: poe-sidecar
+        image: {{if .Values.global.registry}}{{ .Values.global.registry }}/{{end}}{{ .Values.poeSidecar.image.repo }}:{{ .Values.poeSidecar.image.tag }}
+        ports:
+        - containerPort: {{ .Values.poeSidecar.containerPort }}
+        env:
+        - name: SERVICE_NAME
+          value: payment
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: LISTEN_ADDR
+          value: 127.0.0.1:{{ .Values.poeSidecar.containerPort }}
+        resources:
+{{ toYaml .Values.poeSidecar.resources | indent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.poeSidecar.containerPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.poeSidecar.containerPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      {{- end }}

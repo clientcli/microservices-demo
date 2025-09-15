@@ -139,6 +139,20 @@ payment:
             cpu: 100m
             memory: 100Mi
 
+poeSidecar:
+    enabled: true
+    image:
+        repo: ghcr.io/your-org/poe-sidecar
+        tag: v0.1.0
+    containerPort: 8089
+    resources:
+        limits:
+            cpu: 50m
+            memory: 64Mi
+        requests:
+            cpu: 10m
+            memory: 32Mi
+
 queuemaster:
     image:
         repo: weaveworksdemos/queue-master

@@ -34,6 +34,22 @@ spec:
          {{- end }}
          - name: JAVA_OPTS
            value: {{ .Values.java.options }}
+         - name: POE_SERVICE_NAME
+           value: orders
+         - name: POE_SERVICE_NAMESPACE
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.namespace
+         - name: POE_POD_NAME
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.name
+         - name: POE_POD_UID
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.uid
+         - name: POE_SIDECAR_URL
+           value: http://127.0.0.1:{{ .Values.poeSidecar.containerPort }}/prove
         resources:
 {{ toYaml .Values.orders.resources | indent 10 }}
         ports:
@@ -68,4 +84,41 @@ spec:
         - name: tmp-volume
           emptyDir:
             medium: Memory
+      {{- if .Values.poeSidecar.enabled }}
+      - name: poe-sidecar
+        image: {{if .Values.global.registry}}{{ .Values.global.registry }}/{{end}}{{ .Values.poeSidecar.image.repo }}:{{ .Values.poeSidecar.image.tag }}
+        ports:
+        - containerPort: {{ .Values.poeSidecar.containerPort }}
+        env:
+        - name: SERVICE_NAME
+          value: orders
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: LISTEN_ADDR
+          value: 127.0.0.1:{{ .Values.poeSidecar.containerPort }}
+        resources:
+{{ toYaml .Values.poeSidecar.resources | indent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.poeSidecar.containerPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.poeSidecar.containerPort }}
+          initialDelaySeconds: 5
+          periodSeconds: 10
+      {{- end }}
 
