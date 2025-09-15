@@ -1,0 +1,17 @@
+{
+  "name": "zk-poe-sidecar",
+  "version": "0.1.0",
+  "description": "Sidecar service to generate and verify PoE using Groth16 (snarkjs)",
+  "private": true,
+  "license": "Apache-2.0",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "NODE_ENV=development node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "snarkjs": "^0.7.3"
+  }
+}

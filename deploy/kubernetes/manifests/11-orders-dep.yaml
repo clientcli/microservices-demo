@@ -22,6 +22,8 @@ spec:
         env:
          - name: JAVA_OPTS
            value: -Xms64m -Xmx128m -XX:+UseG1GC -Djava.security.egd=file:/dev/urandom -Dspring.zipkin.enabled=false
+         - name: ZK_POE_URL
+           value: http://localhost:8088
         resources:
           limits:
             cpu: 500m
@@ -43,9 +45,72 @@ spec:
         volumeMounts:
         - mountPath: /tmp
           name: tmp-volume
+        - mountPath: /zk
+          name: zk-artifacts
+      - name: zk-poe-sidecar
+        image: zk-poe-sidecar:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: PORT
+          value: "8088"
+        - name: ZK_WASM_PATH
+          value: /zk/circuit.wasm
+        - name: ZK_ZKEY_PATH
+          value: /zk/circuit_final.zkey
+        - name: ZK_VKEY_PATH
+          value: /zk/verification_key.json
+        ports:
+        - containerPort: 8088
+          name: zk-poe
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8088
+          initialDelaySeconds: 2
+          periodSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8088
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 250m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          readOnlyRootFilesystem: true
+        volumeMounts:
+        - mountPath: /zk
+          name: zk-artifacts
+      initContainers:
+      - name: zk-artifacts-init
+        image: curlimages/curl:8.8.0
+        env:
+        - name: ZK_CIRCUITS_URL
+          value: "https://example.com/zk/circuits"
+        command: ["/bin/sh","-c"]
+        args:
+        - >-
+          set -eu;
+          echo "Fetching ZK artifacts from $ZK_CIRCUITS_URL";
+          mkdir -p /zk;
+          curl -fsSL "$ZK_CIRCUITS_URL/circuit.wasm" -o /zk/circuit.wasm;
+          curl -fsSL "$ZK_CIRCUITS_URL/circuit_final.zkey" -o /zk/circuit_final.zkey;
+          curl -fsSL "$ZK_CIRCUITS_URL/verification_key.json" -o /zk/verification_key.json;
+          ls -la /zk;
+        volumeMounts:
+        - mountPath: /zk
+          name: zk-artifacts
       volumes:
         - name: tmp-volume
           emptyDir:
             medium: Memory
+        - name: zk-artifacts
+          emptyDir: {}
       nodeSelector:
         beta.kubernetes.io/os: linux
