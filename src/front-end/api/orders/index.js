@@ -6,6 +6,7 @@
     , request   = require("request")
     , endpoints = require("../endpoints")
     , helpers   = require("../../helpers")
+    , poeEmitter = require("../../utils/poe-emitter")
     , app       = express()
 
   app.get("/orders", function (req, res, next) {
@@ -54,6 +55,15 @@
     }
 
     var custId = req.session.customerId;
+    var reqId = "checkout:" + Date.now();
+    
+    // Emit PoE: CheckoutAuthorizationRequested
+    poeEmitter.emitPoE(reqId, {
+      op: "checkout_authorization",
+      customerId: custId
+    }, {
+      stage: "checkout_authorization_requested"
+    });
 
     async.waterfall([
         function (callback) {
@@ -137,8 +147,33 @@
     ],
     function (err, status, result) {
       if (err) {
+        // Emit PoE: CheckoutAuthorizationFailed
+        poeEmitter.emitPoE(reqId, {
+          stage: "checkout_authorization_failed"
+        }, {
+          error: err.message || "Unknown error"
+        });
         return next(err);
       }
+      
+      if (status >= 200 && status < 300) {
+        // Emit PoE: CheckoutAuthorizationSucceeded
+        poeEmitter.emitPoE(reqId, {
+          stage: "checkout_authorization_succeeded"
+        }, {
+          statusCode: status,
+          orderId: result.id || "unknown"
+        });
+      } else {
+        // Emit PoE: CheckoutAuthorizationFailed
+        poeEmitter.emitPoE(reqId, {
+          stage: "checkout_authorization_failed"
+        }, {
+          statusCode: status,
+          error: result.message || "Order creation failed"
+        });
+      }
+      
       helpers.respondStatusBody(res, status, JSON.stringify(result));
     });
   });

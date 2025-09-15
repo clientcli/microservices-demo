@@ -16,12 +16,14 @@ import works.weave.socks.orders.entities.*;
 import works.weave.socks.orders.repositories.CustomerOrderRepository;
 import works.weave.socks.orders.resources.NewOrderResource;
 import works.weave.socks.orders.services.AsyncGetService;
+import works.weave.socks.orders.utils.PoEEmitter;
 import works.weave.socks.orders.values.PaymentRequest;
 import works.weave.socks.orders.values.PaymentResponse;
 
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
@@ -43,6 +45,9 @@ public class OrdersController {
     @Autowired
     private CustomerOrderRepository customerOrderRepository;
 
+    @Autowired
+    private PoEEmitter poeEmitter;
+
     @Value(value = "${http.timeout:5}")
     private long timeout;
 
@@ -51,7 +56,15 @@ public class OrdersController {
     public
     @ResponseBody
     CustomerOrder newOrder(@RequestBody NewOrderResource item) {
+        String reqId = "order:" + System.currentTimeMillis();
+        
         try {
+            // Emit PoE: OrderCreationStarted
+            poeEmitter.emitPoE(reqId, Map.of(
+                "op", "create_order",
+                "customer", item.customer != null ? item.customer.toString() : "null",
+                "items", item.items != null ? item.items.toString() : "null"
+            ), Map.of("stage", "order_creation_started"));
 
             if (item.address == null || item.customer == null || item.card == null || item.items == null) {
                 throw new InvalidOrderException("Invalid order request. Order requires customer, address, card and items.");
@@ -75,6 +88,13 @@ public class OrdersController {
 
             float amount = calculateTotal(itemsFuture.get(timeout, TimeUnit.SECONDS));
 
+            // Emit PoE: OrderPaymentAuthorized (before payment call)
+            poeEmitter.emitPoE(reqId, Map.of(
+                "op", "authorize_payment",
+                "amount", amount,
+                "customerId", parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref())
+            ), Map.of("stage", "payment_authorization_requested"));
+
             // Call payment service to make sure they've paid
             PaymentRequest paymentRequest = new PaymentRequest(
                     addressFuture.get(timeout, TimeUnit.SECONDS).getContent(),
@@ -90,11 +110,21 @@ public class OrdersController {
             PaymentResponse paymentResponse = paymentFuture.get(timeout, TimeUnit.SECONDS);
             LOG.info("Received payment response: " + paymentResponse);
             if (paymentResponse == null) {
+                // Emit PoE: OrderPaymentFailed
+                poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_failed"), 
+                    Map.of("error", "Unable to parse authorisation packet"));
                 throw new PaymentDeclinedException("Unable to parse authorisation packet");
             }
             if (!paymentResponse.isAuthorised()) {
+                // Emit PoE: OrderPaymentDeclined
+                poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_declined"), 
+                    Map.of("message", paymentResponse.getMessage()));
                 throw new PaymentDeclinedException(paymentResponse.getMessage());
             }
+
+            // Emit PoE: OrderPaymentAuthorized (after successful payment)
+            poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_success"), 
+                Map.of("authorized", true, "message", paymentResponse.getMessage()));
 
             // Ship
             String customerId = parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref());
@@ -117,10 +147,20 @@ public class OrdersController {
             CustomerOrder savedOrder = customerOrderRepository.save(order);
             LOG.debug("Saved order: " + savedOrder);
 
+            // Emit PoE: OrderConfirmed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_confirmed"), 
+            //     Map.of("orderId", savedOrder.getId(), "customerId", customerId, "amount", amount));
+
             return savedOrder;
         } catch (TimeoutException e) {
+            // Emit PoE: OrderCreationFailed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_creation_failed"), 
+            //     Map.of("error", "timeout", "message", "Unable to create order due to timeout from one of the services."));
             throw new IllegalStateException("Unable to create order due to timeout from one of the services.", e);
         } catch (InterruptedException | IOException | ExecutionException e) {
+            // Emit PoE: OrderCreationFailed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_creation_failed"), 
+            //     Map.of("error", "io_error", "message", "Unable to create order due to unspecified IO error."));
             throw new IllegalStateException("Unable to create order due to unspecified IO error.", e);
         }
     }

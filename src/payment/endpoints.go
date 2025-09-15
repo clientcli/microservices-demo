@@ -36,6 +36,8 @@ func MakeAuthoriseEndpoint(s Service) endpoint.Endpoint {
 
 		// Emit PoE for request (pre-decision)
 		reqID := fmt.Sprintf("auth:%d", time.Now().UnixNano())
+
+		// Emit PoE: PaymentAuthRequested
 		emitPoE(reqID, map[string]interface{}{
 			"op":     "authorize",
 			"amount": req.Amount,

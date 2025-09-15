@@ -1,83 +1,41 @@
-# DEPRECATED: Payment
-[![Build Status](https://travis-ci.org/microservices-demo/payment.svg?branch=master)](https://travis-ci.org/microservices-demo/payment)
-[![Coverage Status](https://coveralls.io/repos/github/microservices-demo/payment/badge.svg?branch=master)](https://coveralls.io/github/microservices-demo/payment?branch=master)
-[![Go Report Card](https://goreportcard.com/badge/github.com/microservices-demo/user)](https://goreportcard.com/report/github.com/microservices-demo/user)
-[![](https://images.microbadger.com/badges/image/weaveworksdemos/payment.svg)](http://microbadger.com/images/weaveworksdemos/payment "Get your own image badge on microbadger.com")
+# Payment Service — PoE for Checkout: Payment Authorization
 
-A microservices-demo service that provides payment services.
-This build is built, tested and released by travis.
+This diagram shows the inter-service flow for the authorization sub-workflow and where Proofs of Execution (PoE) are emitted. The `payment` service emits PoEs at the ingress (request received), PSP egress/ingress (simulated PSP call), and decision (response) points.
 
-## Bugs, Feature Requests and Contributing
-We'd love to see community contributions. We like to keep it simple and use Github issues to track bugs and feature requests and pull requests to manage contributions.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant FE as Frontend
+    participant O as Orders
+    participant P as Payment
+    participant PSP as PSP (External)
 
-## API Spec
+    FE->>O: POST /orders (create)
+    Note right of O: «PoE» ingress (order create)
+    O-->>FE: 201 {orderId}
 
-Checkout the API Spec [here](http://microservices-demo.github.io/api/index?url=https://raw.githubusercontent.com/microservices-demo/payment/master/api-spec/payment.json)
+    FE->>P: POST /paymentAuth {orderId, amount}
+    Note right of P: «PoE» ingress (authorize request)
+    P->>PSP: POST /v1/authorize {amount, token}
+    Note over P,PSP: «PoE» egress (PSP request)
+    PSP-->>P: 200 {pspRef, authorised}
+    Note right of P: «PoE» decision (PSP response)
 
-## Build
-
-#### Dependencies
-```
-cd $GOPATH/src/github.com/microservices-demo/payment/
-go get -u github.com/FiloSottile/gvt
-gvt restore
-```
-
-#### Using native Go tools
-In order to build the project locally you need to make sure that the repository directory is located in the correct
-$GOPATH directory: $GOPATH/src/github.com/microservices-demo/payment/. Once that is in place you can build by running:
-
-```
-cd $GOPATH/src/github.com/microservices-demo/payment/paymentsvc/
-go build -o payment
-```
-
-The result is a binary named `payment`, in the current directory.
-
-#### Using Docker Compose
-`docker-compose build`
-
-## Test
-`COMMIT=test make test`
-
-## Run 
-
-#### Using Go native
-
-If you followed to Go build instructions, you should have a "payment" binary in $GOPATH/src/github.com/microservices-demo/payment/cmd/paymentsvc/.
-To run it use:
-```
-./payment
-ts=2016-12-14T11:48:58Z caller=main.go:29 transport=HTTP port=8080
+    alt authorised == true
+        P-->>FE: 200 {authorised:true, pspRef}
+        Note right of P: «PoE» egress (decision: authorised)
+        P-->>O: POST /orders/{id}/authorise {pspRef}
+        Note right of O: «PoE» update (order state=Authorised)
+    else authorised == false
+        P-->>FE: 402 {authorised:false}
+        Note right of P: «PoE» egress (decision: declined)
+        P-->>O: POST /orders/{id}/decline {code}
+        Note right of O: «PoE» update (order state=Declined)
+    end
 ```
 
-#### Using Docker Compose
-
-If you used Docker Compose to build the payment project, the result should be a Docker image called `weaveworksdemos/payment`.
-To run it use:
-```
-docker-compose up
-```
-
-You can now access the service via http://localhost:8082
-
-## Check
-
-You can check the health of the service by doing a GET request to the health endpoint:
-
-```
-curl http://localhost:8082/health
-{"health":[{"service":"payment","status":"OK","time":"2016-12-14 12:22:04.716316395 +0000 UTC"}]}
-```
-
-## Use
-
-You can authorise a payment by POSTing to the paymentAuth endpoint:
-
-```
-curl -H "Content-Type: application/json" -X POST -d'{"Amount":40}'  http://localhost:8082/paymentAuth
-{"authorised":true}
-```
-
-## Push
-`GROUP=weaveworksdemos COMMIT=test ./scripts/push.sh`
+- PoE emission in code
+  - Ingress (request): `src/payment/endpoints.go` emits PoE before calling `Service.Authorise`.
+  - PSP egress/ingress: `src/payment/endpoints.go` emits PoE around the simulated PSP call (`psp_request` and `psp_response` stages).
+  - Decision (response): `src/payment/endpoints.go` emits PoE after the authorization decision.
+  - Sidecar ingest URL: `SIDECAR_INGEST_URL` (default `http://127.0.0.1:8089/prove`).

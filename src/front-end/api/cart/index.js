@@ -6,6 +6,7 @@
     , request   = require("request")
     , helpers   = require("../../helpers")
     , endpoints = require("../endpoints")
+    , poeEmitter = require("../../utils/poe-emitter")
     , app       = express()
 
   // List items in cart for current logged in user.
@@ -13,10 +14,36 @@
     console.log("Request received: " + req.url + ", " + req.query.custId);
     var custId = helpers.getCustomerId(req, app.get("env"));
     console.log("Customer ID: " + custId);
+    
+    var reqId = "cart_get:" + Date.now();
+    
+    // Emit PoE: CartRetrievalRequested
+    poeEmitter.emitPoE(reqId, {
+      op: "get_cart",
+      customerId: custId
+    }, {
+      stage: "cart_retrieval_requested"
+    });
+    
     request(endpoints.cartsUrl + "/" + custId + "/items", function (error, response, body) {
       if (error) {
+        // Emit PoE: CartRetrievalFailed
+        poeEmitter.emitPoE(reqId, {
+          stage: "cart_retrieval_failed"
+        }, {
+          error: error.message || "Unknown error"
+        });
         return next(error);
       }
+      
+      // Emit PoE: CartRetrievalSucceeded
+      poeEmitter.emitPoE(reqId, {
+        stage: "cart_retrieval_succeeded"
+      }, {
+        statusCode: response.statusCode,
+        itemCount: body ? JSON.parse(body).length : 0
+      });
+      
       helpers.respondStatusBody(res, response.statusCode, body)
     });
   });
