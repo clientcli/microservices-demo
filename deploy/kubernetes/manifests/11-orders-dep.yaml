@@ -22,6 +22,22 @@ spec:
         env:
          - name: JAVA_OPTS
            value: -Xms64m -Xmx128m -XX:+UseG1GC -Djava.security.egd=file:/dev/urandom -Dspring.zipkin.enabled=false
+         - name: POE_SERVICE_NAME
+           value: orders
+         - name: POE_SERVICE_NAMESPACE
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.namespace
+         - name: POE_POD_NAME
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.name
+         - name: POE_POD_UID
+           valueFrom:
+             fieldRef:
+               fieldPath: metadata.uid
+         - name: POE_SIDECAR_URL
+           value: http://127.0.0.1:8089/prove
         resources:
           limits:
             cpu: 500m
@@ -43,6 +59,43 @@ spec:
         volumeMounts:
         - mountPath: /tmp
           name: tmp-volume
+      - name: poe-sidecar
+        image: ghcr.io/your-org/poe-sidecar:v0.1.0
+        ports:
+        - containerPort: 8089
+        env:
+        - name: SERVICE_NAME
+          value: orders
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: LISTEN_ADDR
+          value: 127.0.0.1:8089
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 5
+          periodSeconds: 10
       volumes:
         - name: tmp-volume
           emptyDir:

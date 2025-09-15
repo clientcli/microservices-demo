@@ -19,6 +19,23 @@ spec:
       containers:
       - name: payment
         image: weaveworksdemos/payment:0.4.3
+        env:
+        - name: SERVICE_NAME
+          value: payment
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: SIDECAR_INGEST_URL
+          value: http://127.0.0.1:8089/prove
         resources:
           limits:
             cpu: 200m
@@ -49,5 +66,42 @@ spec:
             port: 80
           initialDelaySeconds: 180
           periodSeconds: 3
+      - name: poe-sidecar
+        image: ghcr.io/your-org/poe-sidecar:v0.1.0
+        ports:
+        - containerPort: 8089
+        env:
+        - name: SERVICE_NAME
+          value: payment
+        - name: SERVICE_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_UID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.uid
+        - name: LISTEN_ADDR
+          value: 127.0.0.1:8089
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: true
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8089
+          initialDelaySeconds: 5
+          periodSeconds: 10
       nodeSelector:
         beta.kubernetes.io/os: linux
