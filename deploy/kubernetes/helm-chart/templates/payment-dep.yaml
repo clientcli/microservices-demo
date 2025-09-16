@@ -57,3 +57,17 @@ spec:
             port: {{ .Values.payment.containerPort }}
           initialDelaySeconds: 180
           periodSeconds: 3
+      {{- if .Values.payment.sidecar.enabled }}
+      - name: payment-sidecar
+        image: {{if .Values.global.registry}}{{ .Values.global.registry }}/{{end}}{{ .Values.payment.sidecar.image }}:{{ .Values.payment.sidecar.tag }}
+        command:
+        - sh
+        - -c
+        - while true; do wget -qO- http://127.0.0.1:{{ .Values.payment.containerPort }}/health || true; sleep {{ .Values.payment.sidecar.intervalSeconds }}; done
+        resources:
+{{ toYaml .Values.payment.sidecar.resources | indent 10 }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: true
+      {{- end }}
