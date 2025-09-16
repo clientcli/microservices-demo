@@ -138,6 +138,18 @@ payment:
         requests:
             cpu: 100m
             memory: 100Mi
+    sidecar:
+        enabled: true
+        image: busybox
+        tag: 1.36
+        intervalSeconds: 10
+        resources:
+            limits:
+                cpu: 20m
+                memory: 32Mi
+            requests:
+                cpu: 5m
+                memory: 16Mi
 
 queuemaster:
     image:
