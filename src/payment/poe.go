@@ -95,11 +95,12 @@ func postToSidecar(body proofRequest) error {
 }
 
 func writeToSpool(body proofRequest) error {
-	_ = os.MkdirAll(spoolDir(), 0o755)
+	_ = os.MkdirAll(spoolDir(), 0x755)
 	b, _ := json.Marshal(body)
-	fname := fmt.Sprintf("poe_%s_%d.json", sanitize(body.ReqID), time.Now().UnixMilli())
+	ts := time.Now().UnixNano() / int64(time.Millisecond)
+	fname := fmt.Sprintf("poe_%s_%d.json", sanitize(body.ReqID), ts)
 	path := filepath.Join(spoolDir(), fname)
-	return ioutil.WriteFile(path, b, 0o644)
+	return ioutil.WriteFile(path, b, 0x644)
 }
 
 func sanitize(s string) string {
