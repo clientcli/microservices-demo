@@ -23,6 +23,7 @@ import works.weave.socks.orders.values.PaymentResponse;
 import java.io.IOException;
 import java.util.Calendar;
 import java.util.List;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
@@ -60,11 +61,15 @@ public class OrdersController {
         
         try {
             // Emit PoE: OrderCreationStarted
-            poeEmitter.emitPoE(reqId, Map.of(
-                "op", "create_order",
-                "customer", item.customer != null ? item.customer.toString() : "null",
-                "items", item.items != null ? item.items.toString() : "null"
-            ), Map.of("stage", "order_creation_started"));
+            Map<String, Object> inputData = new HashMap<>();
+            inputData.put("op", "create_order");
+            inputData.put("customer", item.customer != null ? item.customer.toString() : "null");
+            inputData.put("items", item.items != null ? item.items.toString() : "null");
+            
+            Map<String, Object> outputData = new HashMap<>();
+            outputData.put("stage", "order_creation_started");
+            
+            poeEmitter.emitPoE(reqId, inputData, outputData);
 
             if (item.address == null || item.customer == null || item.card == null || item.items == null) {
                 throw new InvalidOrderException("Invalid order request. Order requires customer, address, card and items.");
@@ -89,11 +94,15 @@ public class OrdersController {
             float amount = calculateTotal(itemsFuture.get(timeout, TimeUnit.SECONDS));
 
             // Emit PoE: OrderPaymentAuthorized (before payment call)
-            poeEmitter.emitPoE(reqId, Map.of(
-                "op", "authorize_payment",
-                "amount", amount,
-                "customerId", parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref())
-            ), Map.of("stage", "payment_authorization_requested"));
+            Map<String, Object> authInput = new HashMap<>();
+            authInput.put("op", "authorize_payment");
+            authInput.put("amount", amount);
+            authInput.put("customerId", parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref()));
+            
+            Map<String, Object> authOutput = new HashMap<>();
+            authOutput.put("stage", "payment_authorization_requested");
+            
+            poeEmitter.emitPoE(reqId, authInput, authOutput);
 
             // Call payment service to make sure they've paid
             PaymentRequest paymentRequest = new PaymentRequest(
@@ -101,7 +110,7 @@ public class OrdersController {
                     cardFuture.get(timeout, TimeUnit.SECONDS).getContent(),
                     customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
                     amount);
-            LOG.info("Sending payment request: " + paymentRequest);
+            LOG.info("Sending payment request: " + paymentRequest + " to " + config.getPaymentUri());
             Future<PaymentResponse> paymentFuture = asyncGetService.postResource(
                     config.getPaymentUri(),
                     paymentRequest,
@@ -111,20 +120,36 @@ public class OrdersController {
             LOG.info("Received payment response: " + paymentResponse);
             if (paymentResponse == null) {
                 // Emit PoE: OrderPaymentFailed
-                poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_failed"), 
-                    Map.of("error", "Unable to parse authorisation packet"));
+                Map<String, Object> failInput = new HashMap<>();
+                failInput.put("stage", "payment_authorization_failed");
+                
+                Map<String, Object> failOutput = new HashMap<>();
+                failOutput.put("error", "Unable to parse authorisation packet");
+                
+                poeEmitter.emitPoE(reqId, failInput, failOutput);
                 throw new PaymentDeclinedException("Unable to parse authorisation packet");
             }
             if (!paymentResponse.isAuthorised()) {
                 // Emit PoE: OrderPaymentDeclined
-                poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_declined"), 
-                    Map.of("message", paymentResponse.getMessage()));
+                Map<String, Object> declineInput = new HashMap<>();
+                declineInput.put("stage", "payment_authorization_declined");
+                
+                Map<String, Object> declineOutput = new HashMap<>();
+                declineOutput.put("message", paymentResponse.getMessage());
+                
+                poeEmitter.emitPoE(reqId, declineInput, declineOutput);
                 throw new PaymentDeclinedException(paymentResponse.getMessage());
             }
 
             // Emit PoE: OrderPaymentAuthorized (after successful payment)
-            poeEmitter.emitPoE(reqId, Map.of("stage", "payment_authorization_success"), 
-                Map.of("authorized", true, "message", paymentResponse.getMessage()));
+            Map<String, Object> successInput = new HashMap<>();
+            successInput.put("stage", "payment_authorization_success");
+            
+            Map<String, Object> successOutput = new HashMap<>();
+            successOutput.put("authorized", true);
+            successOutput.put("message", paymentResponse.getMessage());
+            
+            poeEmitter.emitPoE(reqId, successInput, successOutput);
 
             // Ship
             String customerId = parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref());

@@ -12,15 +12,15 @@ import (
 )
 
 type proofRequest struct {
-	ServiceName      *string `json:"service_name,omitempty"`
-	ServiceNamespace *string `json:"service_namespace,omitempty"`
-	PodName          *string `json:"pod_name,omitempty"`
-	PodUID           *string `json:"pod_uid,omitempty"`
-	ImageDigest      *string `json:"image_digest,omitempty"`
-	CodeVersion      *string `json:"code_version,omitempty"`
-	CodeHash         *string `json:"code_hash,omitempty"`
-	JarSHA256        *string `json:"jar_sha256,omitempty"`
-	ReqID            string  `json:"req_id"`
+	ServiceName      *string `json:"serviceName,omitempty"`
+	ServiceNamespace *string `json:"serviceNamespace,omitempty"`
+	PodName          *string `json:"podName,omitempty"`
+	PodUID           *string `json:"podUid,omitempty"`
+	ImageDigest      *string `json:"imageDigest,omitempty"`
+	CodeVersion      *string `json:"codeVersion,omitempty"`
+	CodeHash         *string `json:"codeHash,omitempty"`
+	JarSHA256        *string `json:"jarSha256,omitempty"`
+	ReqID            string  `json:"reqId"`
 	Input            string  `json:"input"`
 	Output           string  `json:"output"`
 }
@@ -29,7 +29,7 @@ func sidecarURL() string {
 	if v := os.Getenv("SIDECAR_INGEST_URL"); v != "" {
 		return v
 	}
-	return "http://127.0.0.1:8089/prove"
+	return "http://payment-poe-sidecar:8089/prove"
 }
 
 func spoolDir() string {
@@ -76,6 +76,7 @@ func ptrOrDefault(envKey, def string) *string {
 
 func postToSidecar(body proofRequest) error {
 	b, _ := json.Marshal(body)
+	fmt.Println("Send request to sidecar at: ", sidecarURL())
 	req, err := http.NewRequest(http.MethodPost, sidecarURL(), bytes.NewReader(b))
 	if err != nil {
 		return err

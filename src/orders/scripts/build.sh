@@ -29,4 +29,4 @@ cp -r $CODE_DIR/docker $CODE_DIR/target/docker/
 cp -r $CODE_DIR/target/*.jar $CODE_DIR/target/docker/${IMAGE}
 
 REPO=${GROUP}/${IMAGE}
-    $DOCKER_CMD build -t ${REPO}:${COMMIT} $CODE_DIR/target/docker/${IMAGE};
+    $DOCKER_CMD build --no-cache -t ${REPO}:${COMMIT} $CODE_DIR/target/docker/${IMAGE};
