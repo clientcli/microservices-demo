@@ -105,6 +105,8 @@ services:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
     expose:
       - "8089"
+    tmpfs:
+      - /tmp:rw,size=512m
     depends_on:
       - orders
     networks:
@@ -188,6 +190,8 @@ services:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
     expose:
       - "8089"
+    tmpfs:
+      - /tmp:rw,size=512m
     depends_on:
       - payment
     networks:

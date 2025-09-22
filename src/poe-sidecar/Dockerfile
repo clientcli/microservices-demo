@@ -8,7 +8,8 @@ WORKDIR /app
 
 # Install runtime deps (no local package.json present)
 # Note: node-fetch v3 is ESM-only; pin v2 for CommonJS require()
-RUN npm install --no-audit --no-fund express body-parser node-fetch@2
+RUN npm install --no-audit --no-fund express body-parser node-fetch@2 body-parser p-queue lru-cache
+
 
 # Copy sidecar source
 COPY index.js ./

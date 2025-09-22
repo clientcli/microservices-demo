@@ -1,17 +1,50 @@
 // sidecar/index.js
+// Sidecar with async proof jobs, handles long runtimes (~4-5 min per proof)
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { execSync } = require('child_process');
-const fs = require('fs');
+const { spawn } = require('child_process');
+const fs = require('fs').promises;
+const path = require('path');
+const os = require('os');
 const crypto = require('crypto');
+const PQueue = require('p-queue').default;
+const { LRUCache } = require('lru-cache');
 
-const SERVICE_BACKEND = process.env.BACKEND_URL || 'http://localhost:8080';
+
+// ----- Config -----
+const SERVICE_BACKEND = process.env.BACKEND_URL || 'http://backend:8080';
 const CIRCUIT_DIR = process.env.CIRCUIT_DIR || '/opt/circuit';
-const PORT = process.env.SIDECAR_PORT || 8089; // default sidecar port
+const PORT = parseInt(process.env.SIDECAR_PORT || '8089', 10);
+const MAX_CONCURRENCY = parseInt(process.env.MAX_PROOFS_CONCURRENCY || '1', 10);
+const MAX_QUEUE_SIZE = parseInt(process.env.MAX_QUEUE_SIZE || '100', 10);
+const WTN_TIMEOUT_MS = parseInt(process.env.WTN_CALC_TIMEOUT_MS || '600000', 10); // 10 min
+const PROVE_TIMEOUT_MS = parseInt(process.env.PROVE_TIMEOUT_MS || '600000', 10); // 10 min
+const POE_WASM = path.join(CIRCUIT_DIR, 'poe_js', 'poe.wasm');
+const POE_ZKEY = path.join(CIRCUIT_DIR, 'poe-final.zkey');
 
-const app = express();
-app.use(bodyParser.json({ limit: '1mb' }));
+// Cache (avoid recomputing same preimage)
+const proofCache = new LRUCache({ max: 1000, ttl: 60 * 60 * 1000 }); // 1h TTL
+
+// Queue (concurrency-limited)
+const queue = new PQueue({ concurrency: MAX_CONCURRENCY });
+
+// Metrics
+const metrics = {
+  queued: 0,
+  active: 0,
+  total: 0,
+  successes: 0,
+  failures: 0,
+  lastDurationSec: null,
+  avgDurationSec: null,
+};
+
+// ----- Helpers -----
+function log(...args) {
+  console.log(new Date().toISOString(), ...args);
+}
 
 function canonicalPreimage(meta) {
   const s = `${meta.method}|${meta.path}|${meta.timestamp}|${meta.reqHash}|${meta.resHash}|${meta.serviceId}|${meta.functionName}`;
@@ -19,152 +52,175 @@ function canonicalPreimage(meta) {
 }
 
 function bytesToCircuitIn(buf) {
-  // The circuit expects 256 bits, so we'll take the first 256 bits from our input
-  const bitArray = [];
-  const n = Math.min(32, Math.ceil(buf.length / 8)); // 32 bytes = 256 bits
-  
+  const bits = [];
+  const n = Math.min(32, buf.length);
   for (let i = 0; i < n; i++) {
-    const byte = buf[i] || 0;
-    // Convert byte to 8 bits
-    for (let j = 7; j >= 0; j--) {
-      bitArray.push((byte >> j) & 1);
-    }
+    const byte = buf[i];
+    for (let j = 7; j >= 0; j--) bits.push((byte >> j) & 1);
   }
-  
-  // Ensure exactly 256 bits
-  while (bitArray.length < 256) {
-    bitArray.push(0);
-  }
-  return bitArray.slice(0, 256);
+  while (bits.length < 256) bits.push(0);
+  return bits.slice(0, 256);
 }
 
-function generateProof(preimageBuf) {
-  const circuitIn = { in: bytesToCircuitIn(preimageBuf) };
+function spawnWithTimeout(cmd, args, { cwd, timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '', timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      proc.kill('SIGKILL');
+    }, timeoutMs);
 
-  // Use a per-request working directory to avoid races between concurrent requests
-  const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const workDir = `${CIRCUIT_DIR}/work_${uniqueId}`;
+    proc.stdout.on('data', d => { stdout += d.toString(); });
+    proc.stderr.on('data', d => { stderr += d.toString(); });
+
+    proc.on('close', code => {
+      clearTimeout(timer);
+      if (timedOut) return reject(new Error(`Timeout after ${timeoutMs}ms`));
+      if (code !== 0) return reject(new Error(stderr || stdout));
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+async function generateProof(preimageBuf, jobId) {
+  const workDir = path.join(os.tmpdir(), `proof_${jobId}`);
+  await fs.mkdir(workDir, { recursive: true });
+  const inputPath = path.join(workDir, 'input.json');
+  const witnessPath = path.join(workDir, 'witness.wtns');
+  const proofPath = path.join(workDir, 'proof.json');
+  const publicPath = path.join(workDir, 'public.json');
+
   try {
-    fs.mkdirSync(workDir, { recursive: true });
-  } catch (err) {}
+    const circuitIn = { in: bytesToCircuitIn(preimageBuf) };
+    await fs.writeFile(inputPath, JSON.stringify(circuitIn));
 
-  const inputsPath = `${workDir}/input.json`;
-  const witnessPath = `${workDir}/witness.wtns`;
-  const proofPath = `${workDir}/proof.json`;
-  const publicPath = `${workDir}/public.json`;
-  fs.writeFileSync(inputsPath, JSON.stringify(circuitIn));
+    log(`[${jobId}] Running wtns calculate...`);
+    await spawnWithTimeout('snarkjs', ['wtns', 'calculate', POE_WASM, inputPath, witnessPath], {
+      cwd: workDir, timeoutMs: WTN_TIMEOUT_MS
+    });
 
-  try {
-    execSync(`snarkjs wtns calculate ${CIRCUIT_DIR}/poe_js/poe.wasm ${inputsPath} ${witnessPath}`, { stdio: 'inherit' });
-    execSync(`snarkjs plonk prove ${CIRCUIT_DIR}/poe-final.zkey ${witnessPath} ${proofPath} ${publicPath}`, { stdio: 'inherit' });
+    log(`[${jobId}] Running plonk prove...`);
+    await spawnWithTimeout('snarkjs', ['plonk', 'prove', POE_ZKEY, witnessPath, proofPath, publicPath], {
+      cwd: workDir, timeoutMs: PROVE_TIMEOUT_MS
+    });
 
-    const result = {
-      proof: JSON.parse(fs.readFileSync(proofPath)),
-      pub: JSON.parse(fs.readFileSync(publicPath))
-    };
-
-    // Best-effort cleanup
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
-    return result;
-  } catch (error) {
-    console.error('Circuit execution failed, using mock proof:', error.message);
-    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
-    // Return a mock proof for testing
-    return {
-      proof: {
-        pi_a: ["mock_proof_a_x", "mock_proof_a_y", "1"],
-        pi_b: [["mock_proof_b_x1", "mock_proof_b_x2"], ["mock_proof_b_y1", "mock_proof_b_y2"], ["1", "0"]],
-        pi_c: ["mock_proof_c_x", "mock_proof_c_y", "1"]
-      },
-      pub: ["mock_public_1", "mock_public_2", "mock_public_3", "mock_public_4"]
-    };
+    const proof = JSON.parse(await fs.readFile(proofPath, 'utf8'));
+    const pub = JSON.parse(await fs.readFile(publicPath, 'utf8'));
+    return { proof, pub };
+  } finally {
+    await fs.rm(workDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-// /prove endpoint
+// ----- Proof Job -----
+async function handleProof(meta, preimageBuf, jobId) {
+  const preHash = crypto.createHash('sha256').update(preimageBuf).digest('hex');
+  const cacheKey = `${preHash}_v1`;
+
+  if (proofCache.has(cacheKey)) {
+    log(`[${jobId}] Proof served from cache.`);
+    return proofCache.get(cacheKey);
+  }
+
+  const start = Date.now();
+  const { proof, pub } = await generateProof(preimageBuf, jobId);
+  const duration = (Date.now() - start) / 1000;
+
+  metrics.successes++;
+  metrics.lastDurationSec = duration;
+  metrics.avgDurationSec = metrics.avgDurationSec
+    ? (metrics.avgDurationSec * (metrics.successes - 1) + duration) / metrics.successes
+    : duration;
+
+  log(`[${jobId}] Proof generated in ${duration.toFixed(1)}s`);
+  const result = { proof, pub };
+  proofCache.set(cacheKey, result);
+  return result;
+}
+
+// ----- Express App -----
+const app = express();
+app.use(bodyParser.json({ limit: '2mb' }));
+
 app.post('/prove', async (req, res) => {
   try {
-    console.log(`[${new Date().toISOString()}] Received /prove request from ${req.ip || req.connection.remoteAddress}`);
-    console.log('Request headers:', JSON.stringify(req.headers, null, 2));
-    console.log('Request body type:', typeof req.body);
-    console.log('Request body:', JSON.stringify(req.body, null, 2));
-    
-    // Check if body is a Buffer and convert to string
-    if (Buffer.isBuffer(req.body)) {
-      console.log('Body is Buffer, converting to string:', req.body.toString('utf8'));
-      req.body = JSON.parse(req.body.toString('utf8'));
-    }
-    
+    log(`/prove request comming....`)
     const meta = req.body;
-    
-    // Handle both formats: orders service format (serviceName, reqId, input, output) 
-    // and direct format (method, path, timestamp, etc.)
-    let canonicalMeta;
-    
-    if (meta.serviceName && meta.reqId && meta.input && meta.output) {
-      // Orders service format
-      console.log('Processing orders service format');
-      const expectedServiceId = process.env.SERVICE_ID || 'service-unknown';
-      
-      // Convert input/output to hashes
-      const reqHash = crypto.createHash('sha256').update(meta.input).digest('hex');
-      const resHash = crypto.createHash('sha256').update(meta.output).digest('hex');
-      
-      canonicalMeta = {
-        method: 'POST', // Default for orders service
-        path: `/orders/${meta.reqId}`, // Use reqId in path
-        timestamp: Date.now(),
-        reqHash,
-        resHash,
-        serviceId: expectedServiceId,
-        functionName: 'orderProcessing'
-      };
-    } else if (meta.method && meta.path) {
-      // Direct format
-      console.log('Processing direct format');
-      const expectedServiceId = process.env.SERVICE_ID || 'service-unknown';
-      if (meta.serviceId && meta.serviceId !== expectedServiceId) {
-        return res.status(403).send('forbidden serviceId');
-      }
+    const expectedServiceId = process.env.SERVICE_ID || 'service-unknown';
 
-      // Compute hashes if bodies are provided and hashes are missing
-      const reqHash = meta.reqHash || (meta.reqBody ? crypto.createHash('sha256').update(Buffer.from(meta.reqBody)).digest('hex') : '');
-      const resHash = meta.resHash || (meta.resBody ? crypto.createHash('sha256').update(Buffer.from(meta.resBody)).digest('hex') : '');
-
-      canonicalMeta = {
-        method: meta.method,
-        path: meta.path,
-        timestamp: meta.timestamp || Date.now(),
-        reqHash,
-        resHash,
-        serviceId: expectedServiceId,
-        functionName: meta.functionName || 'prove'
-      };
-    } else {
-      console.log('Validation failed: unsupported format');
-      console.log('Meta received:', meta);
-      return res.status(400).send('invalid metadata format');
+    log(`meta:`, JSON.stringify(meta))
+    if (!meta || !meta.reqId || !meta.input || !meta.output) {
+      log(`Invalid metadata received`)
+      return res.status(400).send('invalid metadata');
+    }
+    if (meta.serviceName && meta.serviceName !== expectedServiceId) {
+      log(`Forbidden serviceId=${meta.serviceId}`)
+      return res.status(403).send('forbidden serviceId');
     }
 
-    const preimage = canonicalPreimage(canonicalMeta);
+    const reqHash = meta.reqHash || crypto.createHash('sha256').update(meta.reqBody || '').digest('hex');
+    const resHash = meta.resHash || crypto.createHash('sha256').update(meta.resBody || '').digest('hex');
+    const canonicalMeta = {
+      method: 'POST', // Default
+      path: `/orders/${meta.reqId}`, // Use reqId in path
+      timestamp: meta.timestamp || Date.now(),
+      reqHash, resHash,
+      serviceId: expectedServiceId,
+      functionName: meta.functionName || 'prove'
+    };
 
-    // Respond immediately and generate proof asynchronously to avoid client timeouts
-    res.status(202).json({ accepted: true });
+    const preimageBuf = canonicalPreimage(canonicalMeta);
+    const jobId = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
 
-    setImmediate(() => {
+    log(`[${jobId}] Incoming /prove request with meta:`, JSON.stringify(meta));
+
+    // Reject if queue too large
+    if (queue.size + queue.pending > MAX_QUEUE_SIZE) {
+      log(`[${jobId}] Rejected (queue full).`);
+      return res.status(503).json({ error: 'queue full' });
+    }
+
+    res.status(202).json({ accepted: true, jobId });
+
+    metrics.queued++;
+    metrics.total++;
+
+    queue.add(async () => {
+      metrics.queued--;
+      metrics.active++;
       try {
-        const { proof, pub } = generateProof(preimage);
-        console.log(`[${new Date().toISOString()}] Proof generated for ${canonicalMeta.reqHash?.slice(0,8) || canonicalMeta.path}`);
+        log(`[${jobId}] Proof job started (queue length ${queue.size})`);
+        const result = await handleProof(canonicalMeta, preimageBuf, jobId);
+        // Optionally: send to backend
+        // await fetch(`${SERVICE_BACKEND}/proofs`, {
+        //   method: 'POST',
+        //   headers: { 'Content-Type': 'application/json' },
+        //   body: JSON.stringify({ jobId, meta: canonicalMeta, ...result })
+        // }).catch(e => log(`[${jobId}] Backend post failed:`, e.message));
       } catch (e) {
-        console.error('Async proof generation failed:', e.message);
+        metrics.failures++;
+        log(`[${jobId}] Proof job failed:`, e.message);
+      } finally {
+        metrics.active--;
       }
     });
+
   } catch (err) {
-    console.error('Prove error:', err);
-    res.status(500).send('prove error');
+    log('Handler error:', err.message);
+    res.status(500).send('error');
   }
 });
 
+app.get('/metrics', (req, res) => res.json({
+  queueSize: queue.size,
+  pending: queue.pending,
+  concurrency: queue.concurrency,
+  metrics
+}));
+
 app.listen(PORT, () => {
-  console.log(`Sidecar listening on ${PORT}, backend ${SERVICE_BACKEND}`);
+  log(`Sidecar listening on port ${PORT}`);
+  log(`Backend: ${SERVICE_BACKEND}`);
+  log(`Concurrency=${MAX_CONCURRENCY}, MaxQueue=${MAX_QUEUE_SIZE}`);
 });
