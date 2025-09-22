@@ -84,7 +84,8 @@ public class PoEEmitter {
 
                     conn.disconnect();
 
-                    LOG.debug("PoE emitted (fire-and-forget) for reqId: {}", reqId);
+                    LOG.info("PoE emitted (fire-and-forget) for reqId: {}", reqId);
+                    LOG.info("Send " + reqId + "to " + sidecarUrl);
 
                 } catch (Exception e) {
                     LOG.error("Failed to emit PoE for reqId: {} (fire-and-forget, continuing)", reqId, e);
@@ -97,6 +98,8 @@ public class PoEEmitter {
                         LOG.warn("PoE emission async task timed out for reqId: {}", reqId);
                         return null;
                     });
+
+            
 
         } catch (Exception e) {
             LOG.error("Failed to create PoE request for reqId: {}", reqId, e);

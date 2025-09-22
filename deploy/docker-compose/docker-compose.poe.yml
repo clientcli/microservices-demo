@@ -102,8 +102,10 @@ services:
       - CIRCUIT_DIR=/opt/circuit
       - SERVICE_ID=orders
       - BACKEND_URL=http://orders:80
+      - POE_BENCH_LOG=../../src/poe-sidecar/logs/poe-bench.log
     volumes:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
+      - ../../src/poe-sidecar/logs:/data
     expose:
       - "8089"
     depends_on:
@@ -183,8 +185,10 @@ services:
       - CIRCUIT_DIR=/opt/circuit
       - SERVICE_ID=payment
       - BACKEND_URL=http://payment:80
+      - POE_BENCH_LOG=../../src/poe-sidecar/logs/poe-bench.log
     volumes:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
+      - ../../src/poe-sidecar/logs:/data
     expose:
       - "8089"
     depends_on:

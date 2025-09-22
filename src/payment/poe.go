@@ -76,7 +76,6 @@ func ptrOrDefault(envKey, def string) *string {
 
 func postToSidecar(body proofRequest) error {
 	b, _ := json.Marshal(body)
-	fmt.Println("Send request to sidecar at: ", sidecarURL())
 	req, err := http.NewRequest(http.MethodPost, sidecarURL(), bytes.NewReader(b))
 	if err != nil {
 		return err
