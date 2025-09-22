@@ -40,19 +40,35 @@ function bytesToCircuitIn(buf) {
 
 function generateProof(preimageBuf) {
   const circuitIn = { in: bytesToCircuitIn(preimageBuf) };
-  const inputsPath = `${CIRCUIT_DIR}/input.json`;
+
+  // Use a per-request working directory to avoid races between concurrent requests
+  const uniqueId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const workDir = `${CIRCUIT_DIR}/work_${uniqueId}`;
+  try {
+    fs.mkdirSync(workDir, { recursive: true });
+  } catch (err) {}
+
+  const inputsPath = `${workDir}/input.json`;
+  const witnessPath = `${workDir}/witness.wtns`;
+  const proofPath = `${workDir}/proof.json`;
+  const publicPath = `${workDir}/public.json`;
   fs.writeFileSync(inputsPath, JSON.stringify(circuitIn));
 
-    try {
-      execSync(`snarkjs wtns calculate ${CIRCUIT_DIR}/poe_js/poe.wasm ${inputsPath} ${CIRCUIT_DIR}/witness.wtns`, { stdio: 'inherit' });
-      execSync(`snarkjs plonk prove ${CIRCUIT_DIR}/poe-final.zkey ${CIRCUIT_DIR}/witness.wtns ${CIRCUIT_DIR}/proof.json ${CIRCUIT_DIR}/public.json`, { stdio: 'inherit' });
+  try {
+    execSync(`snarkjs wtns calculate ${CIRCUIT_DIR}/poe_js/poe.wasm ${inputsPath} ${witnessPath}`, { stdio: 'inherit' });
+    execSync(`snarkjs plonk prove ${CIRCUIT_DIR}/poe-final.zkey ${witnessPath} ${proofPath} ${publicPath}`, { stdio: 'inherit' });
 
-    return {
-      proof: JSON.parse(fs.readFileSync(`${CIRCUIT_DIR}/proof.json`)),
-      pub: JSON.parse(fs.readFileSync(`${CIRCUIT_DIR}/public.json`))
+    const result = {
+      proof: JSON.parse(fs.readFileSync(proofPath)),
+      pub: JSON.parse(fs.readFileSync(publicPath))
     };
+
+    // Best-effort cleanup
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
+    return result;
   } catch (error) {
     console.error('Circuit execution failed, using mock proof:', error.message);
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch (e) {}
     // Return a mock proof for testing
     return {
       proof: {
@@ -131,9 +147,18 @@ app.post('/prove', async (req, res) => {
     }
 
     const preimage = canonicalPreimage(canonicalMeta);
-    const { proof, pub } = generateProof(preimage);
 
-    res.json({ poe: { ...canonicalMeta, digest: pub, proof } });
+    // Respond immediately and generate proof asynchronously to avoid client timeouts
+    res.status(202).json({ accepted: true });
+
+    setImmediate(() => {
+      try {
+        const { proof, pub } = generateProof(preimage);
+        console.log(`[${new Date().toISOString()}] Proof generated for ${canonicalMeta.reqHash?.slice(0,8) || canonicalMeta.path}`);
+      } catch (e) {
+        console.error('Async proof generation failed:', e.message);
+      }
+    });
   } catch (err) {
     console.error('Prove error:', err);
     res.status(500).send('prove error');

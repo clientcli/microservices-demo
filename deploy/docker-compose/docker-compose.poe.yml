@@ -76,7 +76,7 @@ services:
       - /tmp:rw,noexec,nosuid
   orders:
     # image: weaveworksdemos/orders:0.4.7
-    image: demos/orders:latest
+    image: dev/orders
     # build:
     #   - context: ../../src/orders/docker/orders
     #   - dockerfile: Dockerfile
@@ -92,12 +92,11 @@ services:
     environment:
       - JAVA_OPTS=-Xms64m -Xmx128m -XX:+UseG1GC -Djava.security.egd=file:/dev/urandom -Dspring.zipkin.enabled=false
       - POE_SIDECAR_URL=http://orders-poe-sidecar:8089/prove
-      # - PAYMENT_ENDPOINT=http://payment:8080/paymentAuth
     networks:
       - default
       - orders_sidecar_net
   orders-poe-sidecar:
-    image: demos/sidecar
+    image: dev/sidecar
     environment:
       - CIRCUIT_DIR=/opt/circuit
       - SERVICE_ID=orders
@@ -148,7 +147,9 @@ services:
       - NET_BIND_SERVICE
     read_only: true
     tmpfs:
-      - /tmp:rw,noexec,nosuid
+      - /tmp:rw
+    # tmpfs:
+    #   - /tmp:rw,noexec,nosuid
   rabbitmq:
     image: rabbitmq:3.6.8
     hostname: rabbitmq
@@ -163,7 +164,7 @@ services:
     read_only: true
   payment:
     # image: weaveworksdemos/payment:0.4.3
-    image: demos/payment
+    image: dev/payment
     # build:
     #   - context: "../src/payment/docker/payment"
     #   - dockerfile: Dockerfile
@@ -178,7 +179,7 @@ services:
       - default
       - payment_sidecar_net
   payment-poe-sidecar:
-    image: demos/sidecar
+    image: dev/sidecar
     environment:
       - CIRCUIT_DIR=/opt/circuit
       - SERVICE_ID=payment

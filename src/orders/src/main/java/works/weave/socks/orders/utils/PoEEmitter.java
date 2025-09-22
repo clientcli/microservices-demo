@@ -5,8 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+// no spooling/retry per user request
 
 import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.concurrent.*;
@@ -41,7 +43,7 @@ public class PoEEmitter {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final int connectTimeout = 2000; // 2 seconds
-    private final int readTimeout = 5000;    // 5 seconds - fire and forget
+    private final int readTimeout = 0;       // fire-and-forget: do not wait for response
 
     // Shared scheduler for timeouts
     private static final ScheduledExecutorService scheduler =
@@ -69,25 +71,10 @@ public class PoEEmitter {
             CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
                 try {
                     String json = objectMapper.writeValueAsString(request);
-                    URL url = new URL(sidecarUrl);
-                    HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                    conn.setRequestMethod("POST");
-                    conn.setRequestProperty("Content-Type", "application/json");
-                    conn.setConnectTimeout(connectTimeout);
-                    // conn.setReadTimeout(readTimeout);
-                    conn.setDoOutput(true);
-
-                    try (OutputStream os = conn.getOutputStream()) {
-                        os.write(json.getBytes("UTF-8"));
-                        os.flush();
-                    }
-
-                    conn.disconnect();
-
-                    LOG.debug("PoE emitted (fire-and-forget) for reqId: {}", reqId);
+                    postFireAndForget(json, reqId);
 
                 } catch (Exception e) {
-                    LOG.error("Failed to emit PoE for reqId: {} (fire-and-forget, continuing)", reqId, e);
+                    LOG.error("Failed to emit PoE for reqId: {} (continuing)", reqId, e);
                 }
             });
 
@@ -102,6 +89,32 @@ public class PoEEmitter {
             LOG.error("Failed to create PoE request for reqId: {}", reqId, e);
         }
     }
+
+    private void postFireAndForget(String json, String reqId) throws Exception {
+        HttpURLConnection conn = null;
+        try {
+            URL url = new URL(sidecarUrl);
+            conn = (HttpURLConnection) url.openConnection();
+            conn.setRequestMethod("POST");
+            conn.setRequestProperty("Content-Type", "application/json");
+            conn.setRequestProperty("Connection", "close");
+            conn.setConnectTimeout(connectTimeout);
+            // no read timeout: we won't read a response
+            conn.setDoOutput(true);
+            byte[] payload = json.getBytes(StandardCharsets.UTF_8);
+            conn.setFixedLengthStreamingMode(payload.length);
+            try (OutputStream os = conn.getOutputStream()) {
+                os.write(payload);
+                os.flush();
+            }
+            LOG.info("PoE sent (fire-and-forget) for reqId: {}", reqId);
+        } finally {
+            if (conn != null) {
+                try { conn.disconnect(); } catch (Exception ignore) {}
+            }
+        }
+    }
+    // Removed spooling/retry per user request
 
     // Java 8 compatible timeout helper
     private static <T> CompletableFuture<T> withTimeout(

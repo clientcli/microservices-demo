@@ -68,7 +68,8 @@ public class OrdersController {
             
             Map<String, Object> outputData = new HashMap<>();
             outputData.put("stage", "order_creation_started");
-            
+
+            LOG.info("OrderCreationStarted: {}", reqId);
             poeEmitter.emitPoE(reqId, inputData, outputData);
 
             if (item.address == null || item.customer == null || item.card == null || item.items == null) {
@@ -101,7 +102,9 @@ public class OrdersController {
             
             Map<String, Object> authOutput = new HashMap<>();
             authOutput.put("stage", "payment_authorization_requested");
-            
+
+
+            LOG.info("OrderPaymentAuthorized: {}", reqId);
             poeEmitter.emitPoE(reqId, authInput, authOutput);
 
             // Call payment service to make sure they've paid
