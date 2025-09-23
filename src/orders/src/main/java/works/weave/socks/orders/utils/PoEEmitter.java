@@ -68,9 +68,20 @@ public class PoEEmitter {
             request.input = objectMapper.writeValueAsString(input);
             request.output = objectMapper.writeValueAsString(output);
 
+            // Calculate data lengths for profiling
+            int inputLength = request.input.getBytes(StandardCharsets.UTF_8).length;
+            int outputLength = request.output.getBytes(StandardCharsets.UTF_8).length;
+            int totalLength = inputLength + outputLength;
+
             CompletableFuture<Void> task = CompletableFuture.runAsync(() -> {
                 try {
                     String json = objectMapper.writeValueAsString(request);
+                    int jsonLength = json.getBytes(StandardCharsets.UTF_8).length;
+                    
+                    // Log data lengths for profiling
+                    LOG.info("PoE Data Lengths - reqId: {}, input: {} bytes, output: {} bytes, total: {} bytes, json: {} bytes", 
+                            reqId, inputLength, outputLength, totalLength, jsonLength);
+                    
                     postFireAndForget(json, reqId);
 
                 } catch (Exception e) {

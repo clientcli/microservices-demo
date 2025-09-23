@@ -93,17 +93,36 @@ async function generateProof(preimageBuf, jobId) {
 
   try {
     const circuitIn = { in: bytesToCircuitIn(preimageBuf) };
-    await fs.writeFile(inputPath, JSON.stringify(circuitIn));
+    const inputJson = JSON.stringify(circuitIn);
+    await fs.writeFile(inputPath, inputJson);
+    
+    // Log circuit input data length
+    const inputJsonLength = Buffer.from(inputJson, 'utf8').length;
+    const circuitInputBits = circuitIn.in.length;
+    log(`[${jobId}] Circuit Input - JSON: ${inputJsonLength} bytes, bits: ${circuitInputBits}`);
 
     log(`[${jobId}] Running wtns calculate...`);
+    const wtnsStart = Date.now();
     await spawnWithTimeout('snarkjs', ['wtns', 'calculate', POE_WASM, inputPath, witnessPath], {
       cwd: workDir, timeoutMs: WTN_TIMEOUT_MS
     });
+    const wtnsDuration = (Date.now() - wtnsStart) / 1000;
+    
+    // Get witness file size
+    const witnessStats = await fs.stat(witnessPath).catch(() => ({ size: 0 }));
+    log(`[${jobId}] Witness calculation completed in ${wtnsDuration.toFixed(3)}s, witness file: ${witnessStats.size} bytes`);
 
     log(`[${jobId}] Running plonk prove...`);
+    const proveStart = Date.now();
     await spawnWithTimeout('snarkjs', ['plonk', 'prove', POE_ZKEY, witnessPath, proofPath, publicPath], {
       cwd: workDir, timeoutMs: PROVE_TIMEOUT_MS
     });
+    const proveDuration = (Date.now() - proveStart) / 1000;
+    
+    // Get proof and public input file sizes
+    const proofStats = await fs.stat(proofPath).catch(() => ({ size: 0 }));
+    const publicStats = await fs.stat(publicPath).catch(() => ({ size: 0 }));
+    log(`[${jobId}] Proof generation completed in ${proveDuration.toFixed(3)}s, proof: ${proofStats.size} bytes, public: ${publicStats.size} bytes`);
 
     const proof = JSON.parse(await fs.readFile(proofPath, 'utf8'));
     const pub = JSON.parse(await fs.readFile(publicPath, 'utf8'));
@@ -117,6 +136,13 @@ async function generateProof(preimageBuf, jobId) {
 async function handleProof(meta, preimageBuf, jobId) {
   const preHash = crypto.createHash('sha256').update(preimageBuf).digest('hex');
   const cacheKey = `${preHash}_v1`;
+
+  // Log data lengths for profiling
+  const preimageLength = preimageBuf.length;
+  const metaString = JSON.stringify(meta);
+  const metaLength = Buffer.from(metaString, 'utf8').length;
+  
+  log(`[${jobId}] Data Lengths - preimage: ${preimageLength} bytes, metadata: ${metaLength} bytes, total: ${preimageLength + metaLength} bytes`);
 
   if (proofCache.has(cacheKey)) {
     log(`[${jobId}] Proof served from cache.`);
@@ -134,6 +160,12 @@ async function handleProof(meta, preimageBuf, jobId) {
     : duration;
 
   log(`[${jobId}] Proof generated in ${duration.toFixed(1)}s`);
+  
+  // Log proof generation time and data lengths to dedicated log file
+  // Format: timestamp,jobId,duration_sec,preimage_bytes,metadata_bytes,total_bytes,service_name
+  const logEntry = `${new Date().toISOString()},${jobId},${duration.toFixed(3)},${preimageLength},${metaLength},${preimageLength + metaLength},${meta.serviceId || 'unknown'}\n`;
+  await fs.appendFile('/app/logs/proof_generation_time.log', logEntry).catch(() => {});
+  
   const result = { proof, pub };
   proofCache.set(cacheKey, result);
   return result;

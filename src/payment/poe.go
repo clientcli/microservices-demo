@@ -49,6 +49,12 @@ func getenvPtr(k string) *string {
 func emitPoE(reqID string, input interface{}, output interface{}) {
 	inBytes, _ := json.Marshal(input)
 	outBytes, _ := json.Marshal(output)
+
+	// Calculate data lengths for profiling
+	inputLength := len(inBytes)
+	outputLength := len(outBytes)
+	totalLength := inputLength + outputLength
+
 	body := proofRequest{
 		ServiceName:      ptrOrDefault("SERVICE_NAME", "payment"),
 		ServiceNamespace: getenvPtr("SERVICE_NAMESPACE"),
@@ -62,6 +68,13 @@ func emitPoE(reqID string, input interface{}, output interface{}) {
 		Input:            string(inBytes),
 		Output:           string(outBytes),
 	}
+
+	// Log data lengths for profiling
+	bodyBytes, _ := json.Marshal(body)
+	jsonLength := len(bodyBytes)
+	fmt.Printf("PoE Data Lengths - reqId: %s, input: %d bytes, output: %d bytes, total: %d bytes, json: %d bytes\n",
+		reqID, inputLength, outputLength, totalLength, jsonLength)
+
 	if err := postToSidecar(body); err != nil {
 		_ = writeToSpool(body)
 	}

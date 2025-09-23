@@ -103,6 +103,7 @@ services:
       - BACKEND_URL=http://orders:80
     volumes:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
+      - ../../src/poe-sidecar/logs:/app/logs
     expose:
       - "8089"
     tmpfs:
@@ -188,6 +189,7 @@ services:
       - BACKEND_URL=http://payment:80
     volumes:
       - ../../src/poe-sidecar/circuit-artifacts:/opt/circuit
+      - ../../src/poe-sidecar/logs:/app/logs
     expose:
       - "8089"
     tmpfs:
