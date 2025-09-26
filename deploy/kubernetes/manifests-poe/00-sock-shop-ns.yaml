@@ -2,16 +2,16 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: sock-shop
+  name: sock-shop-poe
   labels:
-    name: sock-shop
+    name: sock-shop-poe
 ---
 # ConfigMap for POE-sidecar configuration
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: poe-sidecar-config
-  namespace: sock-shop
+  namespace: sock-shop-poe
 data:
   circuit-dir: "/opt/circuit"
   logs-dir: "/app/logs"

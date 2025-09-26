@@ -18,7 +18,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: poe-circuit-artifacts-pvc
-  namespace: sock-shop
+  namespace: sock-shop-poe
 spec:
   storageClassName: manual
   accessModes:
@@ -46,7 +46,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: poe-logs-pvc
-  namespace: sock-shop
+  namespace: sock-shop-poe
 spec:
   storageClassName: manual
   accessModes:
