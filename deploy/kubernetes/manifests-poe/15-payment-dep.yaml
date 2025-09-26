@@ -45,7 +45,7 @@ spec:
         - mountPath: /tmp
           name: tmp-volume
       - name: payment-poe-sidecar
-        image: dev/sidecar
+        image: dev/sidecar:1.0.0
         imagePullPolicy: Never
         env:
         - name: CIRCUIT_DIR
@@ -77,8 +77,8 @@ spec:
         volumeMounts:
         - name: circuit-artifacts
           mountPath: /opt/circuit
-        - name: logs-volume
-          mountPath: /app/logs
+        # - name: logs-volume
+        #   mountPath: /app/logs
         - name: tmp-volume
           mountPath: /tmp
         livenessProbe:
@@ -102,6 +102,6 @@ spec:
         - name: circuit-artifacts
           persistentVolumeClaim:
             claimName: poe-circuit-artifacts-pvc
-        - name: logs-volume
-          persistentVolumeClaim:
-            claimName: poe-logs-pvc
+        # - name: logs-volume
+        #   persistentVolumeClaim:
+        #     claimName: poe-logs-pvc

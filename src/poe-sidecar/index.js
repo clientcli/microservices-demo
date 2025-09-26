@@ -99,9 +99,9 @@ async function generateProof(preimageBuf, jobId) {
     // Log circuit input data length
     const inputJsonLength = Buffer.from(inputJson, 'utf8').length;
     const circuitInputBits = circuitIn.in.length;
-    log(`[${jobId}] Circuit Input - JSON: ${inputJsonLength} bytes, bits: ${circuitInputBits}`);
+    // log(`[${jobId}] Circuit Input - JSON: ${inputJsonLength} bytes, bits: ${circuitInputBits}`);
 
-    log(`[${jobId}] Running wtns calculate...`);
+    // log(`[${jobId}] Running wtns calculate...`);
     const wtnsStart = Date.now();
     await spawnWithTimeout('snarkjs', ['wtns', 'calculate', POE_WASM, inputPath, witnessPath], {
       cwd: workDir, timeoutMs: WTN_TIMEOUT_MS
@@ -110,9 +110,9 @@ async function generateProof(preimageBuf, jobId) {
     
     // Get witness file size
     const witnessStats = await fs.stat(witnessPath).catch(() => ({ size: 0 }));
-    log(`[${jobId}] Witness calculation completed in ${wtnsDuration.toFixed(3)}s, witness file: ${witnessStats.size} bytes`);
+    // log(`[${jobId}] Witness calculation completed in ${wtnsDuration.toFixed(3)}s, witness file: ${witnessStats.size} bytes`);
 
-    log(`[${jobId}] Running plonk prove...`);
+    // log(`[${jobId}] Running plonk prove...`);
     const proveStart = Date.now();
     await spawnWithTimeout('snarkjs', ['plonk', 'prove', POE_ZKEY, witnessPath, proofPath, publicPath], {
       cwd: workDir, timeoutMs: PROVE_TIMEOUT_MS
@@ -142,7 +142,7 @@ async function handleProof(meta, preimageBuf, jobId) {
   const metaString = JSON.stringify(meta);
   const metaLength = Buffer.from(metaString, 'utf8').length;
   
-  log(`[${jobId}] Data Lengths - preimage: ${preimageLength} bytes, metadata: ${metaLength} bytes, total: ${preimageLength + metaLength} bytes`);
+  // log(`[${jobId}] Data Lengths - preimage: ${preimageLength} bytes, metadata: ${metaLength} bytes, total: ${preimageLength + metaLength} bytes`);
 
   if (proofCache.has(cacheKey)) {
     log(`[${jobId}] Proof served from cache.`);
@@ -159,12 +159,12 @@ async function handleProof(meta, preimageBuf, jobId) {
     ? (metrics.avgDurationSec * (metrics.successes - 1) + duration) / metrics.successes
     : duration;
 
-  log(`[${jobId}] Proof generated in ${duration.toFixed(1)}s`);
+  // log(`[${jobId}] Proof generated in ${duration.toFixed(1)}s`);
   
   // Log proof generation time and data lengths to dedicated log file
   // Format: timestamp,jobId,duration_sec,preimage_bytes,metadata_bytes,total_bytes,service_name
-  const logEntry = `${new Date().toISOString()},${jobId},${duration.toFixed(3)},${preimageLength},${metaLength},${preimageLength + metaLength},${meta.serviceId || 'unknown'}\n`;
-  await fs.appendFile('/app/logs/proof_generation_time.log', logEntry).catch(() => {});
+  // const logEntry = `${new Date().toISOString()},${jobId},${duration.toFixed(3)},${preimageLength},${metaLength},${preimageLength + metaLength},${meta.serviceId || 'unknown'}\n`;
+  // await fs.appendFile('/app/logs/proof_generation_time.log', logEntry).catch(() => {});
   
   const result = { proof, pub };
   proofCache.set(cacheKey, result);
@@ -181,7 +181,7 @@ app.post('/prove', async (req, res) => {
     const meta = req.body;
     const expectedServiceId = process.env.SERVICE_ID || 'service-unknown';
 
-    log(`meta:`, JSON.stringify(meta))
+    // log(`meta:`, JSON.stringify(meta))
     if (!meta || !meta.reqId || !meta.input || !meta.output) {
       log(`Invalid metadata received`)
       return res.status(400).send('invalid metadata');
@@ -205,7 +205,7 @@ app.post('/prove', async (req, res) => {
     const preimageBuf = canonicalPreimage(canonicalMeta);
     const jobId = `${Date.now()}_${crypto.randomBytes(3).toString('hex')}`;
 
-    log(`[${jobId}] Incoming /prove request with meta:`, JSON.stringify(meta));
+    // log(`[${jobId}] Incoming /prove request with meta:`, JSON.stringify(meta));
 
     // Reject if queue too large
     if (queue.size + queue.pending > MAX_QUEUE_SIZE) {
@@ -222,7 +222,7 @@ app.post('/prove', async (req, res) => {
       metrics.queued--;
       metrics.active++;
       try {
-        log(`[${jobId}] Proof job started (queue length ${queue.size})`);
+        // log(`[${jobId}] Proof job started (queue length ${queue.size})`);
         const result = await handleProof(canonicalMeta, preimageBuf, jobId);
         // Optionally: send to backend
         // await fetch(`${SERVICE_BACKEND}/proofs`, {
