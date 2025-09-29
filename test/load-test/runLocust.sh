@@ -1,53 +1,63 @@
 #!/bin/bash
 #
-# Run locust load test
+# Run locust load test (modernized for Locust 2.x)
 #
 #####################################################################
 ARGS="$@"
 HOST="${1}"
-SCRIPT_NAME=`basename "$0"`
+SCRIPT_NAME=$(basename "$0")
+
 INITIAL_DELAY=1
 TARGET_HOST="$HOST"
-CLIENTS=2
-REQUESTS=10
-
+USERS=2
+SPAWN_RATE=1
+RUN_TIME="1m"
+LOCUST_FILE=${LOCUST_FILE:-"/config/locustfile.py"}
+RESULTS_DIR=${RESULTS_DIR:-"/results"}
 
 do_check() {
-
   # check hostname is not empty
-  if [ "${TARGET_HOST}x" == "x" ]; then
+  if [ -z "$TARGET_HOST" ]; then
     echo "TARGET_HOST is not set; use '-h hostname:port'"
     exit 1
   fi
 
   # check for locust
-  if [ ! `command -v locust` ]; then
+  if ! command -v locust >/dev/null 2>&1; then
     echo "Python 'locust' package is not found!"
     exit 1
   fi
 
   # check locust file is present
-  if [ -n "${LOCUST_FILE:+1}" ]; then
-  	echo "Locust file: $LOCUST_FILE"
+  if [ -f "$LOCUST_FILE" ]; then
+    echo "Locust file: $LOCUST_FILE"
   else
-  	LOCUST_FILE="locustfile.py" 
-  	echo "Default Locust file: $LOCUST_FILE" 
+    echo "ERROR: Locust file $LOCUST_FILE not found!"
+    exit 1
   fi
 }
 
 do_exec() {
   sleep $INITIAL_DELAY
 
-  # check if host is running
-  STATUS=$(curl -s -o /dev/null -w "%{http_code}" ${TARGET_HOST}) 
-  if [ $STATUS -ne 200 ]; then
-      echo "${TARGET_HOST} is not accessible"
-      exit 1
-  fi
+  echo "Will run $LOCUST_FILE against $TARGET_HOST"
+  echo "Spawning $USERS users at $SPAWN_RATE users/sec for $RUN_TIME"
+  echo "Results will be saved to $RESULTS_DIR"
 
-  echo "Will run $LOCUST_FILE against $TARGET_HOST. Spawning $CLIENTS clients and $REQUESTS total requests."
-  locust --host=http://$TARGET_HOST -f $LOCUST_FILE --clients=$CLIENTS --hatch-rate=5 --num-request=$REQUESTS --no-web --only-summary
-  echo "done"
+  mkdir -p "$RESULTS_DIR"
+
+  locust \
+    -f "$LOCUST_FILE" \
+    --headless \
+    -u "$USERS" \
+    -r "$SPAWN_RATE" \
+    --run-time "$RUN_TIME" \
+    --host "$TARGET_HOST" \
+    --csv "$RESULTS_DIR/loadtest" \
+    --html "$RESULTS_DIR/report.html" \
+    --only-summary
+
+  echo "✅ done"
 }
 
 do_usage() {
@@ -56,44 +66,46 @@ Usage:
   ${SCRIPT_NAME} [ hostname ] OPTIONS
 
 Options:
-  -d  Delay before starting
+  -d  Delay before starting (seconds, default: 1)
   -h  Target host url, e.g. http://localhost/
-  -c  Number of clients (default 2)
-  -r  Number of requests (default 10)
+  -c  Number of users (default: 2)
+  -r  Spawn rate users/sec (default: 1)
+  -t  Run time (default: 1m, e.g. 30s, 2m, 5m)
+
+Environment variables:
+  LOCUST_FILE   Path to locustfile.py (default: /config/locustfile.py)
+  RESULTS_DIR   Directory for results (default: /results)
 
 Description:
   Runs a Locust load simulation against specified host.
+  Generates CSV and HTML reports in RESULTS_DIR.
 
 EOF
   exit 1
 }
 
-
-
-while getopts ":d:h:c:r:" o; do
+while getopts ":d:h:c:r:t:" o; do
   case "${o}" in
     d)
         INITIAL_DELAY=${OPTARG}
-        #echo $INITIAL_DELAY
         ;;
     h)
         TARGET_HOST=${OPTARG}
-        #echo $TARGET_HOST
         ;;
     c)
-        CLIENTS=${OPTARG:-2}
-        #echo $CLIENTS
+        USERS=${OPTARG:-2}
         ;;
     r)
-        REQUESTS=${OPTARG:-10}
-        #echo $REQUESTS
+        SPAWN_RATE=${OPTARG:-1}
+        ;;
+    t)
+        RUN_TIME=${OPTARG:-1m}
         ;;
     *)
         do_usage
         ;;
   esac
 done
-
 
 do_check
 do_exec
