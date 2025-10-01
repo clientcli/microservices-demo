@@ -7,9 +7,9 @@ metadata:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: load-test
+  name: load-test-poe
   labels:
-    name: load-test
+    name: load-test-poe
   namespace: loadtest
 spec:
   replicas: 1
@@ -31,14 +31,14 @@ spec:
           - |
             while true; do
               locust \
-                --host http://front-end.sock-shop.svc.cluster.local \
+                --host http://front-end.sock-shop-poe.svc.cluster.local \
                 -f /config/locustfile.py \
                 --headless \
                 -u 3 \
                 -r 1 \
                 --run-time 5m \
                 --csv /results/loadtest;
-              sleep 2m               
+              sleep 2m 
             done
         volumeMounts:
           - name: results
