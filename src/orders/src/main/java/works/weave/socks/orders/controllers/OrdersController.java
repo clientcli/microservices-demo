@@ -22,6 +22,7 @@ import works.weave.socks.orders.values.PaymentResponse;
 
 import java.io.IOException;
 import java.util.Calendar;
+import java.util.UUID;
 import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
@@ -57,7 +58,7 @@ public class OrdersController {
     public
     @ResponseBody
     CustomerOrder newOrder(@RequestBody NewOrderResource item) {
-        String reqId = "order:" + System.currentTimeMillis();
+        String reqId = "order:" + UUID.randomUUID().toString();
         
         try {
             // Emit PoE: OrderCreationStarted
@@ -114,11 +115,13 @@ public class OrdersController {
                     customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
                     amount);
             LOG.info("Sending payment request: " + paymentRequest + " to " + config.getPaymentUri());
-            Future<PaymentResponse> paymentFuture = asyncGetService.postResource(
+            Future<PaymentResponse> paymentFuture = asyncGetService.postResourceWithHeader(
                     config.getPaymentUri(),
                     paymentRequest,
                     new ParameterizedTypeReference<PaymentResponse>() {
-                    });
+                    },
+                    "X-Correlation-Id",
+                    reqId);
             PaymentResponse paymentResponse = paymentFuture.get(timeout, TimeUnit.SECONDS);
             LOG.info("Received payment response: " + paymentResponse);
             if (paymentResponse == null) {

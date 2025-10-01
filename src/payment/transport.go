@@ -7,14 +7,14 @@ import (
 	"io/ioutil"
 	"net/http"
 
-	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/circuitbreaker"
+	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/tracing/opentracing"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"github.com/gorilla/mux"
 	stdopentracing "github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-        "github.com/streadway/handy/breaker"
+	"github.com/streadway/handy/breaker"
 	"golang.org/x/net/context"
 )
 
@@ -72,6 +72,11 @@ func decodeAuthoriseRequest(_ context.Context, r *http.Request) (interface{}, er
 	var request AuthoriseRequest
 	if err := json.Unmarshal(bodyBytes, &request); err != nil {
 		return nil, err
+	}
+
+	// Inject correlation id from header if present
+	if hdr := r.Header.Get("X-Correlation-Id"); hdr != "" {
+		request.CorrelationId = hdr
 	}
 
 	// If amount isn't present, error

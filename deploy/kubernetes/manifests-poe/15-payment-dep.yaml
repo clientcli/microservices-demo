@@ -65,6 +65,8 @@ spec:
               key: backend-url-payment
         - name: NODE_OPTIONS
           value: "--max-old-space-size=6144"
+        - name: AGGREGATOR_INGEST_URL
+          value: "http://proofs-aggregator.sock-shop-poe.svc.cluster.local:8090/ingest/proof"
         ports:
         - containerPort: 8089
         resources:

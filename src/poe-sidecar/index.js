@@ -15,6 +15,7 @@ const { LRUCache } = require('lru-cache');
 
 // ----- Config -----
 const SERVICE_BACKEND = process.env.BACKEND_URL || 'http://backend:8080';
+const AGGREGATOR_URL = process.env.AGGREGATOR_INGEST_URL || 'http://proofs-aggregator:8090/ingest/proof';
 const CIRCUIT_DIR = process.env.CIRCUIT_DIR || '/opt/circuit';
 const PORT = parseInt(process.env.SIDECAR_PORT || '8089', 10);
 const MAX_CONCURRENCY = parseInt(process.env.MAX_PROOFS_CONCURRENCY || '1', 10);
@@ -224,12 +225,17 @@ app.post('/prove', async (req, res) => {
       try {
         // log(`[${jobId}] Proof job started (queue length ${queue.size})`);
         const result = await handleProof(canonicalMeta, preimageBuf, jobId);
-        // Optionally: send to backend
-        // await fetch(`${SERVICE_BACKEND}/proofs`, {
-        //   method: 'POST',
-        //   headers: { 'Content-Type': 'application/json' },
-        //   body: JSON.stringify({ jobId, meta: canonicalMeta, ...result })
-        // }).catch(e => log(`[${jobId}] Backend post failed:`, e.message));
+        // Send to proofs-aggregator for correlation by reqId
+        try {
+          const body = { jobId, meta: { ...canonicalMeta, reqId: meta.reqId, serviceName: meta.serviceName }, proof: result.proof, pub: result.pub, reqId: meta.reqId };
+          await fetch(AGGREGATOR_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+        } catch (e) {
+          log(`[${jobId}] Aggregator post failed:`, e.message);
+        }
       } catch (e) {
         metrics.failures++;
         log(`[${jobId}] Proof job failed:`, e.message);

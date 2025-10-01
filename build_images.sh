@@ -29,6 +29,13 @@ cd "$SCRIPT_DIR/src/poe-sidecar"
 docker build --no-cache -t dev/sidecar .
 echo "✓ POE sidecar built"
 
+# Build Proofs Aggregator
+echo "Building Proofs Aggregator..."
+cd "$SCRIPT_DIR/src/proofs-aggregator"
+docker build --no-cache -t dev/proofs-aggregator:latest .
+echo "✓ Proofs Aggregator built"
+
+
 echo ""
 echo "All images built successfully!"
 echo ""
@@ -36,6 +43,7 @@ echo "Images created:"
 echo "  - dev/orders (orders service with data length tracking)"
 echo "  - dev/payment (payment service with data length tracking)" 
 echo "  - dev/sidecar (POE sidecar with enhanced logging)"
+echo "  - dev/proofs-aggregator:latest (proofs aggregator service)"
 echo ""
 echo "To start the services with ZKP profiling:"
 echo "  docker-compose -f deploy/docker-compose/docker-compose.poe.yml up"

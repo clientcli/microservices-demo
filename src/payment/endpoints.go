@@ -2,6 +2,7 @@ package payment
 
 import (
 	"fmt"
+	"math/rand"
 	"time"
 
 	"github.com/go-kit/kit/endpoint"
@@ -35,7 +36,10 @@ func MakeAuthoriseEndpoint(s Service) endpoint.Endpoint {
 		req := request.(AuthoriseRequest)
 
 		// Emit PoE for request (pre-decision)
-		reqID := fmt.Sprintf("auth:%d", time.Now().UnixNano())
+		reqID := req.CorrelationId
+		if reqID == "" {
+			reqID = fmt.Sprintf("corr:%d_%d", time.Now().UnixNano(), rand.Int63())
+		}
 
 		// Emit PoE: PaymentAuthRequested
 		emitPoE(reqID, map[string]interface{}{
@@ -70,7 +74,8 @@ func MakeHealthEndpoint(s Service) endpoint.Endpoint {
 // AuthoriseRequest represents a request for payment authorisation.
 // The Amount is the total amount of the transaction
 type AuthoriseRequest struct {
-	Amount float32 `json:"amount"`
+	Amount        float32 `json:"amount"`
+	CorrelationId string  `json:"correlationId,omitempty"`
 }
 
 // AuthoriseResponse returns a response of type Authorisation and an error, Err.

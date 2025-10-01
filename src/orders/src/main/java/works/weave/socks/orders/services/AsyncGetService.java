@@ -62,9 +62,29 @@ public class AsyncGetService {
     }
 
     @Async
+    public <T> Future<Resource<T>> getResourceWithHeader(URI url, TypeReferences.ResourceType<T> type, String headerName, String headerValue) throws
+            InterruptedException, IOException {
+        RequestEntity<Void> request = RequestEntity.get(url).accept(HAL_JSON).header(headerName, headerValue).build();
+        LOG.debug("Requesting: " + request.toString());
+        Resource<T> body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
+        LOG.debug("Received: " + body.toString());
+        return new AsyncResult<>(body);
+    }
+
+    @Async
     public <T> Future<Resources<T>> getDataList(URI url, TypeReferences.ResourcesType<T> type) throws
             InterruptedException, IOException {
         RequestEntity<Void> request = RequestEntity.get(url).accept(HAL_JSON).build();
+        LOG.debug("Requesting: " + request.toString());
+        Resources<T> body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
+        LOG.debug("Received: " + body.toString());
+        return new AsyncResult<>(body);
+    }
+
+    @Async
+    public <T> Future<Resources<T>> getDataListWithHeader(URI url, TypeReferences.ResourcesType<T> type, String headerName, String headerValue) throws
+            InterruptedException, IOException {
+        RequestEntity<Void> request = RequestEntity.get(url).accept(HAL_JSON).header(headerName, headerValue).build();
         LOG.debug("Requesting: " + request.toString());
         Resources<T> body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
         LOG.debug("Received: " + body.toString());
@@ -82,9 +102,35 @@ public class AsyncGetService {
     }
 
     @Async
+    public <T> Future<List<T>> getDataListWithHeader(URI url, ParameterizedTypeReference<List<T>> type, String headerName, String headerValue) throws
+            InterruptedException, IOException {
+        RequestEntity<Void> request = RequestEntity.get(url)
+                .accept(MediaType.APPLICATION_JSON)
+                .header(headerName, headerValue)
+                .build();
+        LOG.debug("Requesting: " + request.toString());
+        List<T> body = restProxyTemplate.getRestTemplate().exchange(request, type).getBody();
+        LOG.debug("Received: " + body.toString());
+        return new AsyncResult<>(body);
+    }
+
+    @Async
     public <T, B> Future<T> postResource(URI uri, B body, ParameterizedTypeReference<T> returnType) {
         RequestEntity<B> request = RequestEntity.post(uri).contentType(MediaType.APPLICATION_JSON).accept(MediaType
                 .APPLICATION_JSON).body(body);
+        LOG.debug("Requesting: " + request.toString());
+        T responseBody = restProxyTemplate.getRestTemplate().exchange(request, returnType).getBody();
+        LOG.debug("Received: " + responseBody);
+        return new AsyncResult<>(responseBody);
+    }
+
+    @Async
+    public <T, B> Future<T> postResourceWithHeader(URI uri, B body, ParameterizedTypeReference<T> returnType, String headerName, String headerValue) {
+        RequestEntity<B> request = RequestEntity.post(uri)
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .header(headerName, headerValue)
+                .body(body);
         LOG.debug("Requesting: " + request.toString());
         T responseBody = restProxyTemplate.getRestTemplate().exchange(request, returnType).getBody();
         LOG.debug("Received: " + responseBody);
