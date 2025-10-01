@@ -2727,17 +2727,31 @@ data:
                 "steppedLine": false,
                 "targets": [
                   {
-                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"2..\",route!=\"metrics\"}[1m])) * 100",
+                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"2..\",route!=\"metrics\",kubernetes_namespace=\"sock-shop\"}[1m])) * 100",
                     "intervalFactor": 2,
-                    "legendFormat": "2xx",
+                    "legendFormat": "Baseline 2xx",
                     "refId": "A",
                     "step": 4
                   },
                   {
-                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"4.+|5.+\"}[1m])) * 100",
+                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"4.+|5.+\",kubernetes_namespace=\"sock-shop\"}[1m])) * 100",
                     "intervalFactor": 2,
-                    "legendFormat": "4xx/5xx",
+                    "legendFormat": "Baseline 4xx/5xx",
                     "refId": "B",
+                    "step": 4
+                  },
+                  {
+                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"2..\",route!=\"metrics\",kubernetes_namespace=\"sock-shop-poe\"}[1m])) * 100",
+                    "intervalFactor": 2,
+                    "legendFormat": "POE 2xx",
+                    "refId": "C",
+                    "step": 4
+                  },
+                  {
+                    "expr": "sum(rate(request_duration_seconds_count{name=\"catalogue\",status_code=~\"4.+|5.+\",kubernetes_namespace=\"sock-shop-poe\"}[1m])) * 100",
+                    "intervalFactor": 2,
+                    "legendFormat": "POE 4xx/5xx",
+                    "refId": "D",
                     "step": 4
                   }
                 ],
@@ -2798,24 +2812,45 @@ data:
                 "steppedLine": false,
                 "targets": [
                   {
-                    "expr": "histogram_quantile(0.99, sum(rate(request_duration_seconds_bucket{name=\"catalogue\"}[1m])) by (name, le))",
+                    "expr": "histogram_quantile(0.99, sum(rate(request_duration_seconds_bucket{name=\"catalogue\",kubernetes_namespace=\"sock-shop\"}[1m])) by (name, le))",
                     "intervalFactor": 2,
-                    "legendFormat": "99th quantile",
+                    "legendFormat": "Baseline 99th quantile",
                     "refId": "A",
                     "step": 2
                   },
                   {
-                    "expr": "histogram_quantile(0.5, sum(rate(request_duration_seconds_bucket{name=\"catalogue\"}[1m])) by (name, le))",
+                    "expr": "histogram_quantile(0.5, sum(rate(request_duration_seconds_bucket{name=\"catalogue\",kubernetes_namespace=\"sock-shop\"}[1m])) by (name, le))",
                     "intervalFactor": 2,
-                    "legendFormat": "50th quantile",
+                    "legendFormat": "Baseline 50th quantile",
                     "refId": "B",
                     "step": 2
                   },
                   {
-                    "expr": "sum(rate(request_duration_seconds_sum{name=\"catalogue\"}[1m])) / sum(rate(request_duration_seconds_count{name=\"catalogue\"}[1m]))",
+                    "expr": "sum(rate(request_duration_seconds_sum{name=\"catalogue\",kubernetes_namespace=\"sock-shop\"}[1m])) / sum(rate(request_duration_seconds_count{name=\"catalogue\",kubernetes_namespace=\"sock-shop\"}[1m]))",
                     "intervalFactor": 2,
-                    "legendFormat": "Mean",
+                    "legendFormat": "Baseline Mean",
                     "refId": "C",
+                    "step": 2
+                  },
+                  {
+                    "expr": "histogram_quantile(0.99, sum(rate(request_duration_seconds_bucket{name=\"catalogue\",kubernetes_namespace=\"sock-shop-poe\"}[1m])) by (name, le))",
+                    "intervalFactor": 2,
+                    "legendFormat": "POE 99th quantile",
+                    "refId": "D",
+                    "step": 2
+                  },
+                  {
+                    "expr": "histogram_quantile(0.5, sum(rate(request_duration_seconds_bucket{name=\"catalogue\",kubernetes_namespace=\"sock-shop-poe\"}[1m])) by (name, le))",
+                    "intervalFactor": 2,
+                    "legendFormat": "POE 50th quantile",
+                    "refId": "E",
+                    "step": 2
+                  },
+                  {
+                    "expr": "sum(rate(request_duration_seconds_sum{name=\"catalogue\",kubernetes_namespace=\"sock-shop-poe\"}[1m])) / sum(rate(request_duration_seconds_count{name=\"catalogue\",kubernetes_namespace=\"sock-shop-poe\"}[1m]))",
+                    "intervalFactor": 2,
+                    "legendFormat": "POE Mean",
+                    "refId": "F",
                     "step": 2
                   }
                 ],
