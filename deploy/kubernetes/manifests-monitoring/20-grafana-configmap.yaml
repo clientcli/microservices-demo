@@ -4161,6 +4161,236 @@ data:
         "version": 2
       }
     }
+  
+  sock-shop-resources-poe-dashboard.json: |
+    {
+      "overwrite": true,
+      "inputs": [
+        {
+          "name": "DS_PROMETHEUS",
+          "pluginId": "prometheus",
+          "type": "datasource",
+          "value": "prometheus"
+        }
+      ],
+      "dashboard": {
+        "__inputs": [
+          {
+            "name": "DS_PROMETHEUS",
+            "label": "prometheus",
+            "description": "",
+            "type": "datasource",
+            "pluginId": "prometheus",
+            "pluginName": "Prometheus"
+          }
+        ],
+        "__requires": [
+          {
+            "type": "grafana",
+            "id": "grafana",
+            "name": "Grafana",
+            "version": "4.1.2"
+          },
+          {
+            "type": "panel",
+            "id": "graph",
+            "name": "Graph",
+            "version": ""
+          },
+          {
+            "type": "datasource",
+            "id": "prometheus",
+            "name": "Prometheus",
+            "version": "1.0.0"
+          }
+        ],
+        "annotations": {
+          "list": []
+        },
+        "editable": true,
+        "gnetId": null,
+        "graphTooltip": 0,
+        "id": null,
+        "links": [],
+        "refresh": "10s",
+        "rows": [
+          {
+            "collapse": false,
+            "height": 250,
+            "panels": [
+              {
+                "id": 2,
+                "title": "Memory % (Baseline vs POE)",
+                "type": "graph",
+                "datasource": "${DS_PROMETHEUS}",
+                "lines": true,
+                "linewidth": 2,
+                "targets": [
+                  {
+                    "expr": "sum(container_memory_working_set_bytes{namespace=\"sock-shop\"}) / sum(machine_memory_bytes{}) * 100",
+                    "legendFormat": "Baseline",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "sum(container_memory_working_set_bytes{namespace=\"sock-shop-poe\"}) / sum(machine_memory_bytes{}) * 100",
+                    "legendFormat": "POE",
+                    "refId": "B"
+                  }
+                ],
+                "yaxes": [
+                  {
+                    "format": "percent",
+                    "label": "memory %",
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "show": false
+                  }
+                ]
+              },
+              {
+                "id": 6,
+                "title": "CPU % (Baseline vs POE)",
+                "type": "graph",
+                "datasource": "${DS_PROMETHEUS}",
+                "lines": true,
+                "linewidth": 2,
+                "targets": [
+                  {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"sock-shop\"}[1m])) / sum(machine_cpu_cores) * 100",
+                    "legendFormat": "Baseline",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"sock-shop-poe\"}[1m])) / sum(machine_cpu_cores) * 100",
+                    "legendFormat": "POE",
+                    "refId": "B"
+                  }
+                ],
+                "yaxes": [
+                  {
+                    "format": "percent",
+                    "label": "cpu %",
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "show": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "collapse": false,
+            "height": 227,
+            "panels": [
+              {
+                "id": 10,
+                "title": "Memory Working Set by Pod (Baseline vs POE)",
+                "type": "graph",
+                "datasource": "${DS_PROMETHEUS}",
+                "lines": true,
+                "linewidth": 2,
+                "legend": {
+                  "show": true,
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": true,
+                  "rightSide": true,
+                  "values": true
+                },
+                "targets": [
+                  {
+                    "expr": "sum(container_memory_working_set_bytes{namespace=\"sock-shop\"}) by (pod_name)",
+                    "legendFormat": "Baseline: {{ pod_name }}",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "sum(container_memory_working_set_bytes{namespace=\"sock-shop-poe\"}) by (pod_name)",
+                    "legendFormat": "POE: {{ pod_name }}",
+                    "refId": "B"
+                  }
+                ],
+                "yaxes": [
+                  {
+                    "format": "bytes",
+                    "label": "used",
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "show": false
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "collapse": false,
+            "height": 250,
+            "panels": [
+              {
+                "id": 9,
+                "title": "CPU Usage by Pod (Baseline vs POE)",
+                "type": "graph",
+                "datasource": "${DS_PROMETHEUS}",
+                "lines": true,
+                "linewidth": 2,
+                "legend": {
+                  "show": true,
+                  "alignAsTable": true,
+                  "avg": true,
+                  "current": true,
+                  "rightSide": true,
+                  "values": true
+                },
+                "targets": [
+                  {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"sock-shop\"}[1m])) by (pod_name)",
+                    "legendFormat": "Baseline: {{ pod_name }}",
+                    "refId": "A"
+                  },
+                  {
+                    "expr": "sum(rate(container_cpu_usage_seconds_total{namespace=\"sock-shop-poe\"}[1m])) by (pod_name)",
+                    "legendFormat": "POE: {{ pod_name }}",
+                    "refId": "B"
+                  }
+                ],
+                "yaxes": [
+                  {
+                    "format": "none",
+                    "label": "cores",
+                    "show": true
+                  },
+                  {
+                    "format": "short",
+                    "show": false
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "schemaVersion": 14,
+        "style": "dark",
+        "tags": [],
+        "templating": {
+          "list": []
+        },
+        "time": {
+          "from": "now-1h",
+          "to": "now"
+        },
+        "timezone": "browser",
+        "title": "Sock-Shop Resources (Baseline vs POE)",
+        "version": 8
+      }
+    }
+
+
+
   prometheus-datasource.json: |
     {
       "name": "prometheus",
@@ -5318,6 +5548,7 @@ data:
         "version": 56
       }
     }
+
 kind: ConfigMap
 metadata:
   creationTimestamp: null
