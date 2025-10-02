@@ -26,7 +26,7 @@ echo "✓ Payment service built"
 # Build POE sidecar
 echo "Building POE sidecar..."
 cd "$SCRIPT_DIR/src/poe-sidecar"
-docker build --no-cache -t dev/sidecar .
+docker build --no-cache -t dev/sidecar:1.0.0 .
 echo "✓ POE sidecar built"
 
 # Build Proofs Aggregator
