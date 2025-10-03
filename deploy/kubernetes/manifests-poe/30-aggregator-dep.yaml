@@ -23,6 +23,10 @@ spec:
         env:
         - name: AGGREGATOR_PORT
           value: "8090"
+        - name: CHAIN_CONTRACT_ADDRESS
+          value: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+        - name: ETH_RPC_URL
+          value: "https://sepolia.infura.io/v3/1e315fa547c341d99c27ef946fbbcf2b"
         ports:
         - containerPort: 8090
         resources:

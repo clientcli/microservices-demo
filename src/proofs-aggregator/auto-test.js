@@ -7,6 +7,7 @@ import { create as createIpfs } from 'ipfs-http-client';
 // --- Config ---
 const PORT = parseInt(process.env.AGGREGATOR_PORT || '8090', 10);
 const CHAIN_CONTRACT_ADDRESS = process.env.CHAIN_CONTRACT_ADDRESS || null;
+const ETH_RPC_URL = process.env.ETH_RPC_URL || null;
 const ENABLE_IPFS = process.env.ENABLE_IPFS === 'true';
 const IPFS_URL = process.env.IPFS_URL || 'http://localhost:5001';
 const CHECK_INTERVAL_MS = parseInt(process.env.CHECK_INTERVAL_MS || '30000'); // 30 sec
@@ -31,14 +32,14 @@ function upsertAggregation(reqId) {
   return store.get(reqId);
 }
 
-function blake3Hex(data) {
-  const buf = typeof data === 'string'
-    ? Buffer.from(data)
-    : Buffer.isBuffer(data)
-      ? data
-      : Buffer.from(JSON.stringify(data));
-  return Buffer.from(blake3(buf)).toString('hex');
-}
+// function blake3Hex(data) {
+//   const buf = typeof data === 'string'
+//     ? Buffer.from(data)
+//     : Buffer.isBuffer(data)
+//       ? data
+//       : Buffer.from(JSON.stringify(data));
+//   return Buffer.from(blake3(buf)).toString('hex');
+// }
 
 function buildMerkleTreeBLAKE3(leaves) {
   if (!leaves.length) return { root: null, levels: [] };
@@ -117,38 +118,61 @@ async function monitorWorkflows() {
       if (agg.proofs.length && now - agg.lastUpdatedAt > INACTIVITY_TIMEOUT_MS) {
         console.log(`[Orchestrator] [${reqId}] Finalizing workflow...`);
         try {
+          // 1. Compute Merkle root
           const tree = computeMerkleRootFromAggregation(agg);
-          agg.finalized = {
-            root: tree.root,
-            leafCount: agg.proofs.length,
-            finalizedAt: now
-          };
+          agg.finalized = { root: tree.root, leafCount: agg.proofs.length, finalizedAt: now };
           console.log(`[Orchestrator] [${reqId}] Merkle root: ${agg.finalized.root}`);
 
-          if (ENABLE_IPFS) {
+          // 2. Optionally pin proofs to IPFS
+          if (ENABLE_IPFS && ipfs) {
             const { cid } = await ipfs.add(JSON.stringify(agg.proofs));
             console.log(`[Orchestrator] [${reqId}] Pinned to IPFS: ${cid}`);
           }
 
-          // Just log blockchain gas estimation here
-          try {
-            const body = { to: CHAIN_CONTRACT_ADDRESS, data: '0x' + agg.finalized.root };
-            const resp = await fetch(`http://localhost:${PORT}/aggregate/${reqId}/chain/estimate`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(body)
-            });
-            const gasInfo = await resp.json();
-            console.log(`[Orchestrator] [${reqId}] Estimated gas: ${gasInfo.gasEstimate}`);
-          } catch (e) {
-            console.error(`[Orchestrator] [${reqId}] Gas estimation failed:`, e.message);
+          // 3. Estimate blockchain gas
+          if (CHAIN_CONTRACT_ADDRESS) {
+            try {
+              const rootHex = '0x' + agg.finalized.root; // already computed
+              console.log('Estimating gas for rootHex', rootHex)
+              const gasInfo = await estimateGasForRoot(rootHex, agg.finalized.leafCount, CHAIN_CONTRACT_ADDRESS);
+              console.log(`[Orchestrator] [${reqId}] Estimated gas to submit root: ${gasInfo.gasEstimate}`);
+            } catch (e) {
+              console.error(`[Orchestrator] [${reqId}] Gas estimation failed:`, e.message);
+            }
           }
+
         } catch (e) {
           console.error(`[Orchestrator] [${reqId}] Finalization error:`, e.message);
         }
       }
     }
   }, CHECK_INTERVAL_MS);
+}
+
+// ------------------------ Blockchain gas estimation ------------------------
+async function estimateGasForRoot(rootHex, leafCount, to) {
+  if (!ETH_RPC_URL || !to) {
+    return { root: rootHex, leafCount, note: 'Missing ETH_RPC_URL or contract address' };
+  }
+
+  const payload = {
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'eth_estimateGas',
+    params: [{ to, data: rootHex }]
+  };
+  console.log('payload', payload)
+
+  console.log('Sending request to ETH_RPC_URL', ETH_RPC_URL)
+  const resp = await fetch(ETH_RPC_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+
+  const out = await resp.json();
+  if (out.error) throw new Error(JSON.stringify(out.error));
+  return { root: rootHex, leafCount, gasEstimate: out.result };
 }
 
 // Start
