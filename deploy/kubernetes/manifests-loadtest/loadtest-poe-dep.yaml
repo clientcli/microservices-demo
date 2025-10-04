@@ -29,17 +29,38 @@ spec:
         command: ["/bin/sh", "-c"]
         args:
           - |
-            while true; do
+            # while true; do
               locust \
                 --host http://front-end.sock-shop-poe.svc.cluster.local \
                 -f /config/locustfile.py \
                 --headless \
                 -u 3 \
                 -r 1 \
-                --run-time 5m \
+                --run-time 10m \
                 --csv /results/loadtest;
-              sleep 2m 
-            done
+              sleep 3m 
+            # done
+
+              locust \
+                --host http://front-end.sock-shop-poe.svc.cluster.local \
+                -f /config/locustfile.py \
+                --headless \
+                -u 6 \
+                -r 2 \
+                --run-time 10m \
+                --csv /results/loadtest;
+              sleep 3m 
+
+              locust \
+                --host http://front-end.sock-shop-poe.svc.cluster.local \
+                -f /config/locustfile.py \
+                --headless \
+                -u 10 \
+                -r 4 \
+                --run-time 10m \
+                --csv /results/loadtest;
+              sleep 3m 
+
         volumeMounts:
           - name: results
             mountPath: /results

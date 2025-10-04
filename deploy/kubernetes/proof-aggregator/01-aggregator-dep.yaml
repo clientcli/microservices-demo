@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: proofs-aggregator
-  namespace: sock-shop-poe
+  namespace: aggregator
   labels:
     app: proofs-aggregator
 spec:
@@ -16,6 +16,7 @@ spec:
       labels:
         app: proofs-aggregator
     spec:
+      hostNetwork: true
       containers:
       - name: aggregator
         image: dev/proofs-aggregator:latest
@@ -23,10 +24,10 @@ spec:
         env:
         - name: AGGREGATOR_PORT
           value: "8090"
-        - name: CHAIN_CONTRACT_ADDRESS
-          value: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238"
+        # - name: CHAIN_CONTRACT_ADDRESS
+        #   value: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
         - name: ETH_RPC_URL
-          value: "https://sepolia.infura.io/v3/1e315fa547c341d99c27ef946fbbcf2b"
+          value: "http://192.168.159.90:8545"
         ports:
         - containerPort: 8090
         resources:
@@ -45,7 +46,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: proofs-aggregator
-  namespace: sock-shop-poe
+  namespace: aggregator
   labels:
     app: proofs-aggregator
 spec:
