@@ -2,6 +2,7 @@
 logs
 *.log
 npm-debug.log*
+*.pdf
 
 # Dependency directories
 node_modules
@@ -131,3 +132,6 @@ output-virtualbox-iso
 # Ignore grafanalib output
 /graphs/__pycache__/
 /graphs/*.json
+
+# Ignore circuit artifacts
+src/poe-sidecar/circuit-artifacts

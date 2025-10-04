@@ -1,0 +1,246 @@
+package works.weave.socks.orders.controllers;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.data.rest.webmvc.RepositoryRestController;
+import org.springframework.hateoas.Resource;
+import org.springframework.hateoas.mvc.TypeReferences;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.*;
+import works.weave.socks.orders.config.OrdersConfigurationProperties;
+import works.weave.socks.orders.entities.*;
+import works.weave.socks.orders.repositories.CustomerOrderRepository;
+import works.weave.socks.orders.resources.NewOrderResource;
+import works.weave.socks.orders.services.AsyncGetService;
+import works.weave.socks.orders.utils.PoEEmitter;
+import works.weave.socks.orders.values.PaymentRequest;
+import works.weave.socks.orders.values.PaymentResponse;
+
+import java.io.IOException;
+import java.util.Calendar;
+import java.util.UUID;
+import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+
+@RepositoryRestController
+public class OrdersController {
+    private final Logger LOG = LoggerFactory.getLogger(getClass());
+
+    @Autowired
+    private OrdersConfigurationProperties config;
+
+    @Autowired
+    private AsyncGetService asyncGetService;
+
+    @Autowired
+    private CustomerOrderRepository customerOrderRepository;
+
+    @Autowired
+    private PoEEmitter poeEmitter;
+
+    @Value(value = "${http.timeout:5}")
+    private long timeout;
+
+    @ResponseStatus(HttpStatus.CREATED)
+    @RequestMapping(path = "/orders", consumes = MediaType.APPLICATION_JSON_VALUE, method = RequestMethod.POST)
+    public
+    @ResponseBody
+    CustomerOrder newOrder(@RequestBody NewOrderResource item) {
+        String reqId = "order:" + UUID.randomUUID().toString();
+        
+        try {
+            // Emit PoE: OrderCreationStarted
+            Map<String, Object> inputData = new HashMap<>();
+            inputData.put("op", "create_order");
+            inputData.put("customer", item.customer != null ? item.customer.toString() : "null");
+            inputData.put("items", item.items != null ? item.items.toString() : "null");
+            
+            Map<String, Object> outputData = new HashMap<>();
+            outputData.put("stage", "order_creation_started");
+
+            LOG.info("OrderCreationStarted: {}", reqId);
+            poeEmitter.emitPoE(reqId, inputData, outputData);
+
+            if (item.address == null || item.customer == null || item.card == null || item.items == null) {
+                throw new InvalidOrderException("Invalid order request. Order requires customer, address, card and items.");
+            }
+
+
+            LOG.debug("Starting calls");
+            Future<Resource<Address>> addressFuture = asyncGetService.getResource(item.address, new TypeReferences
+                    .ResourceType<Address>() {
+            });
+            Future<Resource<Customer>> customerFuture = asyncGetService.getResource(item.customer, new TypeReferences
+                    .ResourceType<Customer>() {
+            });
+            Future<Resource<Card>> cardFuture = asyncGetService.getResource(item.card, new TypeReferences
+                    .ResourceType<Card>() {
+            });
+            Future<List<Item>> itemsFuture = asyncGetService.getDataList(item.items, new
+                    ParameterizedTypeReference<List<Item>>() {
+            });
+            LOG.debug("End of calls.");
+
+            float amount = calculateTotal(itemsFuture.get(timeout, TimeUnit.SECONDS));
+
+            // Emit PoE: OrderPaymentAuthorized (before payment call)
+            Map<String, Object> authInput = new HashMap<>();
+            authInput.put("op", "authorize_payment");
+            authInput.put("amount", amount);
+            authInput.put("customerId", parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref()));
+            
+            Map<String, Object> authOutput = new HashMap<>();
+            authOutput.put("stage", "payment_authorization_requested");
+
+
+            LOG.info("OrderPaymentAuthorized: {}", reqId);
+            poeEmitter.emitPoE(reqId, authInput, authOutput);
+
+            // Call payment service to make sure they've paid
+            PaymentRequest paymentRequest = new PaymentRequest(
+                    addressFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    cardFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    amount);
+            LOG.info("Sending payment request: " + paymentRequest + " to " + config.getPaymentUri());
+            Future<PaymentResponse> paymentFuture = asyncGetService.postResourceWithHeader(
+                    config.getPaymentUri(),
+                    paymentRequest,
+                    new ParameterizedTypeReference<PaymentResponse>() {
+                    },
+                    "X-Correlation-Id",
+                    reqId);
+            PaymentResponse paymentResponse = paymentFuture.get(timeout, TimeUnit.SECONDS);
+            LOG.info("Received payment response: " + paymentResponse);
+            if (paymentResponse == null) {
+                // Emit PoE: OrderPaymentFailed
+                Map<String, Object> failInput = new HashMap<>();
+                failInput.put("stage", "payment_authorization_failed");
+                
+                Map<String, Object> failOutput = new HashMap<>();
+                failOutput.put("error", "Unable to parse authorisation packet");
+                
+                poeEmitter.emitPoE(reqId, failInput, failOutput);
+                throw new PaymentDeclinedException("Unable to parse authorisation packet");
+            }
+            if (!paymentResponse.isAuthorised()) {
+                // Emit PoE: OrderPaymentDeclined
+                Map<String, Object> declineInput = new HashMap<>();
+                declineInput.put("stage", "payment_authorization_declined");
+                
+                Map<String, Object> declineOutput = new HashMap<>();
+                declineOutput.put("message", paymentResponse.getMessage());
+                
+                poeEmitter.emitPoE(reqId, declineInput, declineOutput);
+                throw new PaymentDeclinedException(paymentResponse.getMessage());
+            }
+
+            // Emit PoE: OrderPaymentAuthorized (after successful payment)
+            Map<String, Object> successInput = new HashMap<>();
+            successInput.put("stage", "payment_authorization_success");
+            
+            Map<String, Object> successOutput = new HashMap<>();
+            successOutput.put("authorized", true);
+            successOutput.put("message", paymentResponse.getMessage());
+            
+            poeEmitter.emitPoE(reqId, successInput, successOutput);
+
+            // Ship
+            String customerId = parseId(customerFuture.get(timeout, TimeUnit.SECONDS).getId().getHref());
+            Future<Shipment> shipmentFuture = asyncGetService.postResource(config.getShippingUri(), new Shipment
+                    (customerId), new ParameterizedTypeReference<Shipment>() {
+            });
+
+            CustomerOrder order = new CustomerOrder(
+                    null,
+                    customerId,
+                    customerFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    addressFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    cardFuture.get(timeout, TimeUnit.SECONDS).getContent(),
+                    itemsFuture.get(timeout, TimeUnit.SECONDS),
+                    shipmentFuture.get(timeout, TimeUnit.SECONDS),
+                    Calendar.getInstance().getTime(),
+                    amount);
+            LOG.debug("Received data: " + order.toString());
+
+            CustomerOrder savedOrder = customerOrderRepository.save(order);
+            LOG.debug("Saved order: " + savedOrder);
+
+            // Emit PoE: OrderConfirmed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_confirmed"), 
+            //     Map.of("orderId", savedOrder.getId(), "customerId", customerId, "amount", amount));
+
+            return savedOrder;
+        } catch (TimeoutException e) {
+            // Emit PoE: OrderCreationFailed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_creation_failed"), 
+            //     Map.of("error", "timeout", "message", "Unable to create order due to timeout from one of the services."));
+            throw new IllegalStateException("Unable to create order due to timeout from one of the services.", e);
+        } catch (InterruptedException | IOException | ExecutionException e) {
+            // Emit PoE: OrderCreationFailed
+            // poeEmitter.emitPoE(reqId, Map.of("stage", "order_creation_failed"), 
+            //     Map.of("error", "io_error", "message", "Unable to create order due to unspecified IO error."));
+            throw new IllegalStateException("Unable to create order due to unspecified IO error.", e);
+        }
+    }
+
+    private String parseId(String href) {
+        Pattern idPattern = Pattern.compile("[\\w-]+$");
+        Matcher matcher = idPattern.matcher(href);
+        if (!matcher.find()) {
+            throw new IllegalStateException("Could not parse user ID from: " + href);
+        }
+        return matcher.group(0);
+    }
+
+//    TODO: Add link to shipping
+//    @RequestMapping(method = RequestMethod.GET, value = "/orders")
+//    public @ResponseBody
+//    ResponseEntity<?> getOrders() {
+//        List<CustomerOrder> customerOrders = customerOrderRepository.findAll();
+//
+//        Resources<CustomerOrder> resources = new Resources<>(customerOrders);
+//
+//        resources.forEach(r -> r);
+//
+//        resources.add(linkTo(methodOn(ShippingController.class, CustomerOrder.getShipment::ge)).withSelfRel());
+//
+//        // add other links as needed
+//
+//        return ResponseEntity.ok(resources);
+//    }
+
+    private float calculateTotal(List<Item> items) {
+        float amount = 0F;
+        float shipping = 4.99F;
+        amount += items.stream().mapToDouble(i -> i.getQuantity() * i.getUnitPrice()).sum();
+        amount += shipping;
+        return amount;
+    }
+
+    @ResponseStatus(value = HttpStatus.NOT_ACCEPTABLE)
+    public class PaymentDeclinedException extends IllegalStateException {
+        public PaymentDeclinedException(String s) {
+            super(s);
+        }
+    }
+
+    @ResponseStatus(value = HttpStatus.NOT_ACCEPTABLE)
+    public class InvalidOrderException extends IllegalStateException {
+        public InvalidOrderException(String s) {
+            super(s);
+        }
+    }
+}

@@ -1,0 +1,22 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sock-shop-poe
+  labels:
+    name: sock-shop-poe
+---
+# ConfigMap for POE-sidecar configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: poe-sidecar-config
+  namespace: sock-shop-poe
+data:
+  circuit-dir: "/opt/circuit"
+  logs-dir: "/app/logs"
+  service-id-orders: "orders"
+  service-id-payment: "payment"
+  backend-url-orders: "http://orders:80"
+  backend-url-payment: "http://payment:80"
+---

@@ -1,0 +1,60 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: proofs-aggregator
+  namespace: aggregator
+  labels:
+    app: proofs-aggregator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: proofs-aggregator
+  template:
+    metadata:
+      labels:
+        app: proofs-aggregator
+    spec:
+      hostNetwork: true
+      containers:
+      - name: aggregator
+        image: dev/proofs-aggregator:latest
+        imagePullPolicy: Never
+        env:
+        - name: AGGREGATOR_PORT
+          value: "8090"
+        # - name: CHAIN_CONTRACT_ADDRESS
+        #   value: "0x5FbDB2315678afecb367f032d93F642f64180aa3"
+        - name: ETH_RPC_URL
+          value: "http://192.168.159.90:8545"
+        ports:
+        - containerPort: 8090
+        resources:
+          requests:
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 10001
+          readOnlyRootFilesystem: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: proofs-aggregator
+  namespace: aggregator
+  labels:
+    app: proofs-aggregator
+spec:
+  selector:
+    app: proofs-aggregator
+  ports:
+  - name: http
+    port: 8090
+    targetPort: 8090
+
+

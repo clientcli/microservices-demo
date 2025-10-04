@@ -12,7 +12,7 @@ metadata:
     name: load-test
   namespace: loadtest
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       name: load-test
@@ -23,8 +23,49 @@ spec:
     spec:
       containers:
       - name: load-test
-        image: weaveworksdemos/load-test:0.1.1
-        command: ["/bin/sh"]
-        args: ["-c", "while true; do locust --host http://front-end.sock-shop.svc.cluster.local -f /config/locustfile.py --clients 5 --hatch-rate 5 --num-request 100 --no-web; done"]
+        # image: weaveworksdemos/load-test:0.1.1
+        image: dev/load-test
+        imagePullPolicy: Never
+        command: ["/bin/sh", "-c"]
+        args:
+          - |
+            # while true; do
+            locust \
+              --host http://front-end.sock-shop.svc.cluster.local \
+              -f /config/locustfile.py \
+              --headless \
+              -u 3 \
+              -r 1 \
+              --run-time 10m \
+              --csv /results/loadtest;
+            sleep 3m               
+            # done
+            
+            locust \
+              --host http://front-end.sock-shop.svc.cluster.local \
+              -f /config/locustfile.py \
+              --headless \
+              -u 6 \
+              -r 2 \
+              --run-time 10m \
+              --csv /results/loadtest;
+            sleep 3m
+            
+            locust \
+              --host http://front-end.sock-shop.svc.cluster.local \
+              -f /config/locustfile.py \
+              --headless \
+              -u 10 \
+              -r 4 \
+              --run-time 10m \
+              --csv /results/loadtest;
+            sleep 3m
+
+        volumeMounts:
+          - name: results
+            mountPath: /results
+      volumes:
+        - name: results
+          emptyDir: {}
       nodeSelector:
         beta.kubernetes.io/os: linux

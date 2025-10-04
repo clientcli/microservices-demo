@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hardhat-node
+  namespace: blockchain
+  labels:
+    app: hardhat
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hardhat
+  template:
+    metadata:
+      labels:
+        app: hardhat
+    spec:
+      initContainers:
+        - name: deploy-proofregistry
+          image: dev/hardhat-node:latest
+          imagePullPolicy: Never
+          command: ["sh", "-c"]
+          args:
+            - |
+              # Wait for node to start
+              # sleep 5
+              # Deploy ProofRegistry
+              # npx hardhat run scripts/deploy.js --network localhost
+              # Create cluster-wide ConfigMap with contract address
+              # CONTRACT_ADDR=$(cat deployed_address.txt)
+              # kubectl create configmap proofregistry-address \
+              #   --from-literal=address=$CONTRACT_ADDR \
+              #   --namespace=blockchain --dry-run=client -o yaml | kubectl apply -f -
+          env:
+            - name: ETH_RPC_URL
+              value: "http://localhost:8545"
+          # volumeMounts:
+          #   - name: deploy-volume
+          #     mountPath: /app
+      containers:
+        - name: hardhat
+          image: dev/hardhat-node:latest
+          imagePullPolicy: Never
+          ports:
+            - containerPort: 8545
+      #     volumeMounts:
+      #       - name: deploy-volume
+      #         mountPath: /app
+      # volumes:
+      #   - name: deploy-volume
+      #     emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hardhat
+  namespace: blockchain
+  labels:
+    app: hardhat
+spec:
+  selector:
+    app: hardhat
+  ports:
+    - protocol: TCP
+      port: 8545
+      targetPort: 8545
+  type: ClusterIP
